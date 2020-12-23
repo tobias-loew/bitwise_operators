@@ -31,5 +31,5 @@ type-safe bitwise-operations on enums in C++
 
 # The benefits of bitwise_operators
 With bitwise_operators you can non-intrusively enably bitwise operations on scoped and unscoped flag-like enumerations.
-The bitwise-operations &, &=, |, |=, ^ and ^= when applied to an enabled enumeration all return the type of the enumeration again.
-The negation-operation operator~(E e) returns as type bitmask<E> tp account for the fact that the negation of a set of flags is in general *not* a set flags but has also all "unused" bits sets (i.e. the operations ~, &, | are also a boolean algebra on the the set {E, bitmask<E>}). The library takes this into account and e.g. only prevents modifying operatiors &=, |= and ^= for incompatible types. E.g. operator |=(E& e1, bitmaks<E> e2) is not allowed as it would turn e1 from a combinations of flags to a bitmask.
+- The bitwise-operations &, &=, |, |=, ^ and ^= when applied to an enabled enumeration all return the type of the enumeration again.
+- The negation-operation operator~(E e) returns as type bitmask<E> tp account for the fact that the negation of a set of flags is in general *not* a set flags but has also all "unused" bits sets (i.e. the operations ~, &, | are also a boolean algebra on the the set {E, bitmask<E>}). The library takes this into account and e.g. only prevents modifying operatiors &=, |= and ^= for incompatible types. E.g. operator |=(E& e1, bitmaks<E> e2) is not allowed as it would turn e1 from a combinations of flags into a bitmask.
