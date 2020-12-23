@@ -1,11 +1,11 @@
 //////////////////////////////////////////////////////////////////
 //
-// bitwise operators library
+//  bitwise operators for flag-like enumerations library
 //
 //  Copyright Tobias Loew 2020. Use, modification and
 //  distribution is subject to the Boost Software License, Version
 //  1.0. (See accompanying file LICENSE_1_0.txt or copy at
-//  http://www.boost.org/LICENSE_1_0.txt)
+//  http://www.lunaticpp.org/LICENSE_1_0.txt)
 //
 // For more information, see https://github.com/tobias-loew/bitwise_operators
 //
@@ -24,7 +24,7 @@
 /*
 
 template<>
-struct boost::bitwise_operators::enable_operators<enumeration> : std::true_type {};
+struct lunaticpp::bitwise_operators::enable_operators<enumeration> : std::true_type {};
 
 */
 //
@@ -38,25 +38,25 @@ struct boost::bitwise_operators::enable_operators<enumeration> : std::true_type 
     };
 
     enum class flags2_t {
-        e = boost::bitwise_operators::nth_bit(0), // == 0x1
-        f = boost::bitwise_operators::nth_bit(1), // == 0x2
-        g = boost::bitwise_operators::nth_bit(2), // == 0x4
+        e = lunaticpp::bitwise_operators::nth_bit(0), // == 0x1
+        f = lunaticpp::bitwise_operators::nth_bit(1), // == 0x2
+        g = lunaticpp::bitwise_operators::nth_bit(2), // == 0x4
     };
 
     template<>
-    struct boost::bitwise_operators::enable_operators<flags_t> : std::true_type {};
+    struct lunaticpp::bitwise_operators::enable_operators<flags_t> : std::true_type {};
 
     template<>
-    struct boost::bitwise_operators::enable_operators<flags2_t> : std::true_type {};
+    struct lunaticpp::bitwise_operators::enable_operators<flags2_t> : std::true_type {};
 
     void foo() {
         auto ab = flags_t::a | flags_t::b;  // type of ab is flags_t
         auto bc = flags_t::b | flags_t::c;  // type of bc is flags_t
         auto ab_and_bc = ab & bc;           // type of ab_and_bc is flags_t
-        auto not_a = ~flags_t::a;           // type of not_a is boost::bitwise_operators::bitmask<flags_t>
+        auto not_a = ~flags_t::a;           // type of not_a is lunaticpp::bitwise_operators::bitmask<flags_t>
         auto not_not_a = ~not_a;            // type of not_not_a is flags_t
 
-        // auto ae = flags_t::a | flags2_t::e;  // compilation error
+        // auto ae = flags_t::a | flags2_t::e;  // compilation error (different enumerations)
 
 
         // test with boolean result
@@ -66,7 +66,7 @@ struct boost::bitwise_operators::enable_operators<enumeration> : std::true_type 
     }
 */
 
-namespace boost {
+namespace lunaticpp {
     namespace bitwise_operators {
 
         template<typename E>
@@ -88,6 +88,8 @@ namespace boost {
         struct enable_operators<impl::tag_different_types_used > : std::false_type {};
 
         namespace impl {
+
+            // get enum-type
             template<typename E>
             struct get_enum {
                 using type = E;
@@ -100,12 +102,15 @@ namespace boost {
             using get_enum_t = typename get_enum<E>::type;
 
 
+            // test for bitmask
             template<typename E>
             struct is_bitmask : std::false_type {};
 
             template<typename E>
             struct is_bitmask<bitmask<E>> : std::true_type {};
 
+
+            // test if enabled
             template<typename E>
             struct is_enabled_for_operators : enable_operators<E> {};
 
@@ -137,7 +142,7 @@ namespace boost {
 
 
             template<typename B1, typename B2>
-            struct xoring : std::bool_constant<B1::value^ B2::value> {};
+            struct xoring : std::bool_constant<B1::value ^ B2::value> {};
 
             template<typename E1, typename E2>
             using bitmask_operation_xor_result_t = typename bitmask_operation_result<E1, E2, xoring>::type;
@@ -249,8 +254,44 @@ namespace boost {
             return impl::get_underlying(value) == 0;
         }
 
+#if __cplusplus <= 201703
+        // test for == 0 / != 0
+        template<typename E>
+        [[nodiscard]]
+        constexpr std::enable_if_t<enable_operators<E>::value, bool>
+            operator==(std::nullptr_t, E value) {
+            return value == std::nullptr_t{};
+        }
 
+        template<typename E>
+        [[nodiscard]]
+        constexpr std::enable_if_t<enable_operators<E>::value, bool>
+            operator!=(E value, std::nullptr_t) {
+            return !(value == std::nullptr_t{});
+        }
+
+        template<typename E>
+        [[nodiscard]]
+        constexpr std::enable_if_t<enable_operators<E>::value, bool>
+            operator!=(std::nullptr_t, E value) {
+            return !(value == std::nullptr_t{});
+        }
+#endif
         
+
+#ifdef BITWISE_OPERATORS_ENABLE_LOGICAL_OPERATORS
+        // operators && and ||: convinience functions to to a bitwise & (resp. |) followed by test != 0
+        // (a && b) is equivalent to (a & b) != 0
+        // (a || b) is equivalent to (a | b) != 0
+        //
+        // ATTENTION: may change semantics of code with unscoped enums, e.g.
+        //
+        // enum e {a=1, b=2};
+        // if(a && b){...}
+        // 
+        // with bitwises-operators enabled and BITWISE_OPERATORS_ENABLE_LOGICAL_OPERATORS defined the expression evaluates to false [(a&&b) -> (a & b) != 0 -> 0 !- 0 -> false]
+        // while without it evaluates to true [(a&&b) -> (true && true) -> true]
+
         template<typename E1, typename E2>
         [[nodiscard]]
         constexpr auto
@@ -264,10 +305,14 @@ namespace boost {
         operator||(E lhs, E rhs) {
             return impl::get_underlying(lhs) | impl::get_underlying(rhs);
         }
+#endif // BITWISE_OPERATORS_ENABLE_LOGICAL_OPERATORS
 
 
 
 
+#ifdef BITWISE_OPERATORS_ENABLE_CONVINIENCE_FUNCTIONS
+
+        // test if any bit is set
         template<typename E>
         [[nodiscard]]
         constexpr std::enable_if_t<enable_operators<E>::value, bool>
@@ -275,6 +320,7 @@ namespace boost {
             return impl::get_underlying(e) != 0;
         }
 
+        // test if no bit is set
         template<typename E>
         [[nodiscard]]
         constexpr std::enable_if_t<enable_operators<E>::value, bool>
@@ -283,6 +329,7 @@ namespace boost {
         }
 
 
+        // returns an empty instance of E
         template<typename E>
         [[nodiscard]]
         constexpr std::enable_if_t<enable_operators<E>::value, E>
@@ -291,14 +338,17 @@ namespace boost {
         }
 
 
+        // depending on set
+        // returns e or an empty instance of E
         template<typename E>
         [[nodiscard]]
         constexpr std::enable_if_t<enable_operators<E>::value, E>
-            make_if(E f, bool set) {
-            return set ? f : static_cast<E>(0);
+            make_if(E e, bool set) {
+            return set ? e : static_cast<E>(0);
         }
 
-
+        // return a copy of value with all
+        // bits of modification set resp. cleared
         template<typename E>
         [[nodiscard]]
         constexpr std::enable_if_t<enable_operators<E>::value, E>
@@ -306,6 +356,8 @@ namespace boost {
             return set ? (value | modification) : (value & ~modification);
         }
 
+        // sets resp. clears the bits of modification
+        // in value in-place
         template<typename E>
         [[nodiscard]]
         constexpr std::enable_if_t<enable_operators<E>::value, void>
@@ -316,21 +368,27 @@ namespace boost {
 
 
 
-        // helper to get a value with n-th (zero-indexed) bit set
+        // returns a value with the n-th (zero-indexed) bit set
         [[nodiscard]]
         inline constexpr auto nth_bit(unsigned int n) { return 1 << n; }
+
+#endif // BITWISE_OPERATORS_ENABLE_CONVINIENCE_FUNCTIONS
 
     }
 }
 
 
-using boost::bitwise_operators::operator |;
-using boost::bitwise_operators::operator &;
-using boost::bitwise_operators::operator ^;
-using boost::bitwise_operators::operator ~;
-using boost::bitwise_operators::operator |=;
-using boost::bitwise_operators::operator &=;
-using boost::bitwise_operators::operator ^=;
-using boost::bitwise_operators::operator !;
+using lunaticpp::bitwise_operators::operator |;
+using lunaticpp::bitwise_operators::operator &;
+using lunaticpp::bitwise_operators::operator ^;
+using lunaticpp::bitwise_operators::operator ~;
+using lunaticpp::bitwise_operators::operator |=;
+using lunaticpp::bitwise_operators::operator &=;
+using lunaticpp::bitwise_operators::operator ^=;
+using lunaticpp::bitwise_operators::operator !;
+using lunaticpp::bitwise_operators::operator ==;
+#if __cplusplus <= 201703
+using lunaticpp::bitwise_operators::operator !=;
+#endif
 
 #endif  // BITWISE_OPERATORS_HPP_INCLUDED
