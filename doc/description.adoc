@@ -1,4 +1,75 @@
-﻿////
+////
+Copyright 2023 Tobias Loew
+Distributed under the Boost Software License, Version 1.0.
+http://www.boost.org/LICENSE_1_0.txt
+////
+
+[#description]
+# Description
+:toc:
+:toc-title:
+:idprefix:
+
+The header `<boost/flags.hpp>` provides type-safe bitwise operations on scoped and unscoped flag-like enumerations
+in a non-intrusive way.
+
+When an enumeration is enabled for type-safe bitwise operations, then all the bitwise operators `&, &=, |, |=, ^, ^=` and `~`
+are type preserving.
+
+Flag-like enumerations are usually used when there is a set of binary options `a,b,c,...` and then defined e.g. like
+```
+enum flags {
+  flag_a = 0x1,
+  flag_b = 0x2,
+  flag_c = 0x4,
+  // ...
+};
+```
+For unscoped enums
+
+
+The bitwise-operations &, &=, |, |=, ^ and ^= when applied to an enabled enumeration all return the type of the enumeration again.
+The negation-operation operator~(E e) returns as type bitmask to account for the fact that the negation of a set of flags is in general 
+not a set of flags but has also all _unused_ bits sets.
+From a mathematical point of view speaking are the operations ~, &, | are also a boolean algebra on the the set {E, bitmask}). The library takes this into account and e.g. only prevents modifying operatiors &=, |= and ^= for incompatible types. E.g. operator |=(E& e1, bitmaks e2) is not allowed as it would turn e1 from a combinations of flags into a bitmask.
+
+`boost::throw_exception(x);` is a replacement for `throw x;` that both
+degrades gracefully when exception handling support is not available, and
+integrates the thrown exception into facilities provided by
+link:../../../exception/index.html[Boost.Exception], such as automatically
+providing a base class of type `boost::exception` and support for
+`boost::exception_ptr`.
+
+When exception handling is not available, the function is only declared, but
+not defined. This allows users to provide their own definition.
+
+An overload for `boost::throw_exception` that takes a
+link:../../../assert/doc/html/assert.html#source_location_support[`boost::source_location`]
+is provided. It records the supplied source location into the `boost::exception`
+base class, from where it can later be retrieved when the exception is caught.
+link:../../../exception/doc/diagnostic_information.html[`boost::diagnostic_information`]
+automatically displays the stored source location.
+
+The macro `BOOST_THROW_EXCEPTION(x)` expands to
+`::boost::throw_exception(x, BOOST_CURRENT_LOCATION)`, passing the current source
+location.
+
+When integration with Boost.Exception and `boost::exception_ptr` is not needed,
+the function `boost::throw_with_location` can be used instead. It also throws
+a user-provided exception, associating it with a supplied or inferred source
+location, but does not supply the `boost::exception` base class and does not
+enable `boost::exception_ptr` support.
+
+The source location of the exception thrown by `boost::throw_with_location`
+can be retrieved, after `catch(std::exception const & x)`, by using
+`boost::get_throw_location(x)`.
+
+`boost::get_throw_location` also works for exceptions thrown by the two argument
+overload of `boost::throw_exception`, or by `BOOST_THROW_EXCEPTION`; in this case
+it returns the source location stored in the `boost::exception` base class.
+
+
+////
 Copyright 2002, 2007, 2014, 2017 Peter Dimov
 Copyright 2011 Beman Dawes
 Copyright 2015 Ion Gaztañaga
