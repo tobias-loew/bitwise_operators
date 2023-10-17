@@ -1,0 +1,33 @@
+﻿////
+Copyright 2023 Tobias Loew
+
+Distributed under the Boost Software License, Version 1.0.
+
+See accompanying file LICENSE_1_0.txt or copy at
+http://www.boost.org/LICENSE_1_0.txt
+////
+
+# Boost.Flags
+Tobias Loew
+:toc: left
+:idprefix:
+:docinfo: private-footer
+
+The Boost.Flags library provides type-safe bitwise-operations on scoped and unscoped enums in an unintrusive way.
+
+:leveloffset: +1
+
+include::flags.adoc[]
+include::logical_and_operator.adoc[]
+include::utility_functions.adoc[]
+include::changes.adoc[]
+
+:leveloffset: -1
+
+[appendix]
+## Copyright and License
+
+This documentation is
+
+* Copyright 2023 Tobias Loew
+* Distributed under the http://www.boost.org/LICENSE_1_0.txt[Boost Software License, Version 1.0].
