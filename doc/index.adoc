@@ -12,18 +12,17 @@ Tobias Loew
 :toc: left
 :idprefix:
 :docinfo: private-footer
-
-The Boost.Flags library provides type-safe bitwise-operations on scoped and unscoped enums in an unintrusive way.
+:source-highlighter: rouge
+:source-language: c++
 
 :leveloffset: +1
 
-include::flags.adoc[]
-include::logical_and_operator.adoc[]
-include::utility_functions.adoc[]
+include::description.adoc[]
+include::examples.adoc[]
 include::changes.adoc[]
+include::reference.adoc[]
 
 :leveloffset: -1
-
 [appendix]
 ## Copyright and License
 
