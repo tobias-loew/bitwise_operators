@@ -235,6 +235,13 @@ namespace lunaticpp {
                 using E1 = enum_type_t<T1>;
                 using E2 = enum_type_t<T2>;
 
+                // static-asserting on "if E1 or E2 is enabled then both are equal" in here would result in poor
+                // error diagnostic. The error would point here, and not to the call site. 
+                // We use the compatibility_check template instead (see below).
+                //static_assert(
+                //    (!(enable<E1>::value || enable<E2>::value) || std::is_same_v<E1, E2>)
+                //    );
+
                 using type = typename std::conditional<
                     std::is_same<E1, E2>::value&& enable<E1>::value,        // check undelying enums are the same and enabled
                     typename std::conditional<
@@ -245,6 +252,23 @@ namespace lunaticpp {
                     error_tag
                 >::type;
             };
+
+
+            // checking: if E1 or E2 is enabled then both are equal
+            // enforces a hard compilation error
+            template<typename T1, typename T2>
+            struct compatibility_check {
+                using E1 = enum_type_t<T1>;
+                using E2 = enum_type_t<T2>;
+                static_assert(
+                    (!(enable<E1>::value || enable<E2>::value) || std::is_same_v<E1, E2>)
+                    );
+                using type = void;
+            };
+
+            template<typename T1, typename T2>
+            using compatibility_check_t = compatibility_check<T1, T2>::type;
+
 
             // the standard doesn't provide a not_equal trait, so lets use our own
             template<typename B1, typename B2>
@@ -283,7 +307,7 @@ namespace lunaticpp {
         concept LogicalOperationEnabled = BinaryOperationEnabled<T1, T2, BinOp>&&
             is_flags<typename impl::binary_operation_result<T1, T2, BinOp>::type>::value;
 
-        template<typename T1, typename T2> 
+        template<typename T1, typename T2, typename Check = impl::compatibility_check_t<T1,T2>>
             requires BinaryOperationEnabled<T1, T2, std::conjunction>
         BOOST_ATTRIBUTE_NODISCARD
             constexpr auto
@@ -295,7 +319,7 @@ namespace lunaticpp {
             };
         }
 
-        template<typename T1, typename T2>
+        template<typename T1, typename T2, typename Check = impl::compatibility_check_t<T1, T2>>
             requires BinaryOperationEnabled<T1, T2, std::disjunction>
         BOOST_ATTRIBUTE_NODISCARD
             constexpr auto
@@ -307,7 +331,7 @@ namespace lunaticpp {
             };
         }
 
-        template<typename T1, typename T2>
+        template<typename T1, typename T2, typename Check = impl::compatibility_check_t<T1, T2>>
             requires BinaryOperationEnabled<T1, T2, impl::not_equal>
         BOOST_ATTRIBUTE_NODISCARD
             constexpr auto
@@ -333,7 +357,7 @@ namespace lunaticpp {
         }
 
 
-        template<typename T1, typename T2> 
+        template<typename T1, typename T2, typename Check = impl::compatibility_check_t<T1, T2>>
             requires BinaryAssignmentEnabled<T1, T2, std::conjunction>
         constexpr T1&
             operator&=(T1& lhs, T2 rhs) {
@@ -341,7 +365,7 @@ namespace lunaticpp {
             return lhs;
         }
 
-        template<typename T1, typename T2>
+        template<typename T1, typename T2, typename Check = impl::compatibility_check_t<T1, T2>>
             requires BinaryAssignmentEnabled<T1, T2, std::disjunction>
         constexpr T1&
             operator|=(T1& lhs, T2 rhs) {
@@ -349,7 +373,7 @@ namespace lunaticpp {
             return lhs;
         }
 
-        template<typename T1, typename T2>
+        template<typename T1, typename T2, typename Check = impl::compatibility_check_t<T1, T2>>
             requires BinaryAssignmentEnabled<T1, T2, impl::not_equal>
         constexpr T1&
             operator^=(T1& lhs, T2 rhs) {
@@ -453,7 +477,7 @@ namespace lunaticpp {
         // the expression evaluates to false [(a&&b) -> (a & b) != 0 -> 0 != 0 -> false]
         // while without it evaluates to true [(a&&b) -> (true && true) -> true]
 
-        template<typename T1, typename T2>
+        template<typename T1, typename T2, typename Check = impl::compatibility_check_t<T1, T2>>
             requires LogicalOperationEnabled<T1, T2, std::conjunction>&& LogicalBoolEnabled<T1>
         BOOST_ATTRIBUTE_NODISCARD
             constexpr bool

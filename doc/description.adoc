@@ -10,10 +10,85 @@ http://www.boost.org/LICENSE_1_0.txt
 :toc-title:
 :idprefix:
 
-The header `<boost/flags.hpp>` provides type-safe bitwise operations on scoped and unscoped flag-like enumerations
-in a non-intrusive way.
+The header `<boost/flags.hpp>` provides type-safe bitwise operations for scoped and unscoped flag-like enumerations in a non-intrusive way.
 
-When an enumeration is enabled for type-safe bitwise operations, then all the bitwise operators `&, &=, |, |=, ^, ^=` and `~`
+
+Why using Boost.Flags?
+
+It is quite common to use the bits of an integer type for representing different options. 
+One possible way is using a plain unsigned integer and defining the different options as macros. As an example here some code from `<winuser.h>` defining the Windows listbox control styles
+```
+#define LBS_NOTIFY            0x0001L
+#define LBS_SORT              0x0002L
+#define LBS_NOREDRAW          0x0004L
+#define LBS_MULTIPLESEL       0x0008L
+...
+#define LBS_NOSEL             0x4000L
+```
+This approach has the advantage that all the bitwise operators are available. But when dealing with multiple sets of options, there is no way for the compiler to check that only 'compatible' options are used which each other. E.g. also defined in `<WinUser.h>` we find the styles for button controls
+```
+#define BS_MULTILINE        0x00002000L
+#define BS_NOTIFY           0x00004000L
+#define BS_FLAT             0x00008000L
+```
+So, an statement like 
+```
+    if (listbox_style & BS_NOTIFY) { ...
+``` 
+will compile, but won't execute as aspected since the programmer accidentially wrote `BS_NOTIFY` instead of `LBS_NOTIFY`.
+
+Additionally since the type used to store those flags is an integer, there is no way to prohibit accedintially passing a variable of flags to a function, where flags from a different set were expected.
+
+A better approach is using unscoped enumeration instead of plain integers: 
+```
+enum flags_a {
+	flags_a_opt_1 = 0x1,
+	flags_a_opt_2 = 0x2,
+	flags_a_opt_4 = 0x4,
+};
+
+enum flags_b {
+	flags_b_opt_1 = 0x1,
+	flags_b_opt_2 = 0x2,
+	flags_b_opt_4 = 0x4,
+};
+```
+Now there will be a compiler-error, when we try to pass members or variables of type `flags_a` to a function expecting `flags_b`.
+
+But still there is no way to prohibit logical errors like
+```
+	flags_a a = get_flags_a();
+    if (a & flags_b_opt_1) { 
+``` 
+since the compiler implicitly promotes unscoped enums to integers.
+
+And here we come to the next problem with unscoped enums: the result type of binary logical operations and the unary negation is an integer type. So, when assigning it to a enum flags variable we need a `static_cast`, which is again a source for logical errors. Consequently, the binary assignment operators are not available at all.
+
+Using scoped enumerations makes it even worse since then also binary logical operations are no longer available.
+
+
+When dealing with flags it is also common to use bit-masks for filtering. Here we have to differentiate between positive masks, which are bitwise or of flags, and their complement negative masks.
+Positive masks are used for filtering out certain flags or checking for their existance
+```
+	// for simplicity we use plain integer flags
+#define OPT_1 0x1	
+#define OPT_2 0x2	
+#define OPT_3 0x4	
+	unsigned mask_1_2 = OPT_1 | OPT_2;
+	unsigned options = get_options();
+    if (options & mask_1_2) {  // OPT_1 or OPT_2 is set
+```
+while negative masks are used for disabling flags
+```
+	unsigned mask_3 = ~(OPT_3);
+	unsigned options = get_options();
+	a &= mask_3;		// unset OPT_3 
+```
+
+
+The use of the bits of an underlying type for
+
+For enabled enumeration is enabled for type-safe bitwise operations, then all the bitwise operators `&, &=, |, |=, ^, ^=` and `~`
 are type preserving.
 
 Flag-like enumerations are usually used when there is a set of binary options `a,b,c,...` and then defined e.g. like
@@ -32,6 +107,9 @@ The bitwise-operations &, &=, |, |=, ^ and ^= when applied to an enabled enumera
 The negation-operation operator~(E e) returns as type bitmask to account for the fact that the negation of a set of flags is in general 
 not a set of flags but has also all _unused_ bits sets.
 From a mathematical point of view speaking are the operations ~, &, | are also a boolean algebra on the the set {E, bitmask}). The library takes this into account and e.g. only prevents modifying operatiors &=, |= and ^= for incompatible types. E.g. operator |=(E& e1, bitmaks e2) is not allowed as it would turn e1 from a combinations of flags into a bitmask.
+
+
+
 
 `boost::throw_exception(x);` is a replacement for `throw x;` that both
 degrades gracefully when exception handling support is not available, and
