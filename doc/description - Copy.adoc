@@ -1,0 +1,894 @@
+////
+Copyright 2023 Tobias Loew
+Distributed under the Boost Software License, Version 1.0.
+http://www.boost.org/LICENSE_1_0.txt
+////
+
+:source-highlighter: rouge
+:source-language: cpp
+
+[#description]
+# Fun with Boost.Flags
+:toc:
+:toc-title: 
+:idprefix:
+:stem: latexmath
+
+## How to use Boost.Flags? - TL;DR
+
+* include the header ``<boost/flags.hpp>``
+* opt-in for an enumeration `E` by specializing
+
+```cpp
+template<> struct boost::flags::enable<E> : std::true_type {};
+```
+
+Example:
+
+[source, C++,subs="+quotes,+macros"]
+----
+enum class pizza_toppings {
+    tomato      = boost::flags::nth_bit(0), // == 0x01
+    cheese      = boost::flags::nth_bit(1), // == 0x02
+    salami      = boost::flags::nth_bit(2), // == 0x04
+    olives      = boost::flags::nth_bit(4), // == 0x10
+};
+// enable Boost.Flags for pizza_toppings
+template<> struct boost::flags::enable<pizza_toppings> : std::true_type {};
+
+enum class ice_cream_flavours {
+    vanilla     = boost::flags::nth_bit(0), // == 0x01
+    chocolate   = boost::flags::nth_bit(1), // == 0x02
+    strawberry  = boost::flags::nth_bit(2), // == 0x04
+};
+// enable Boost.Flags for ice_cream_flavours
+template<> struct boost::flags::enable<ice_cream_flavours> : std::true_type {};
+
+void order_pizza(pizza_toppings toppings) { ... }
+void order_ice_cream(ice_cream_flavours flavours) { ... }
+
+int main() {
+    pizza_toppings toppings = pizza_toppings::tomato | pizza_toppings::cheese; // a decent start
+    toppings |= pizza_toppings::salami | pizza_toppings::olives;    // even better
+    order_pizza(toppings);                              // order main course
+    order_pizza(toppings & ~pizza_toppings::salami);    // and a vegetarian pizza
+    pass:[<span style="text-decoration: red wavy underline; text-decoration-skip-ink: none;">order_pizza(~pizza_toppings::olives);</span>]               // error: negative mask is not a pizza topping
+    pass:[<span style="text-decoration: red wavy underline; text-decoration-skip-ink: none;">toppings |= ice_cream_flavours::strawberry;</span>]         // error: different enums
+    order_ice_cream(ice_cream_flavours::vanilla);       // order desert
+    pass:[<span style="text-decoration: red wavy underline; text-decoration-skip-ink: none;">order_ice_cream(toppings);</span>]                          // error: wrong enum
+}
+----
+// "
+
+## Why use Boost.Flags? - TL;DR
+
+* provides type-safe bitwise operations for flag-like scoped / unscoped enumerations
+* turns undetected logical errors into type errors
+// ** when applying bitwise operators to incompatible enumerations
+// ** when accidentally converting bitmasks (negation of flags) to `bool`
+* is non-intrusive - only requires a template specialization
+// * provides a bunch of bit manipulation convenience functions
+// * enforces additional type-checks for existing flag-like unscoped enumerations, while still allowing implicit conversion to `int` and `bool`
+
+## The long story
+
+Why do we use the bits of integer types for boolean options?
+
+- easy to define, e.g. as macros, integer constants or enumerators
+- language support for setting and querying through bitwise operators
+- compact representation in memory
+- simple bulk transfer in interfaces (a uint32_t can hold up to 32 different boolean options)
+- enforces the usage of names, especially to prevent `bool` parameters in interfaces:
+[quote, C. Martin (Uncle Bob), Clean Code]   
+Boolean arguments loudly declare that the function does more than one thing. They are confusing and should be eliminated.
+
+All required operations for dealing with bits are already built into the language, so what do we need Boost.Flags for? 
+
+### Type-Safety
+
+For flags based on integer-types (macros, static const[expr] integers or enumerations) all values are implicitly convertible to `int`. The compiler can't help, when we accidentally apply bitwise operators to unrelated flags. 
+
+Here's an example from the Win32-API: In `Windows.h` we find the listbox-style +
+`#define LBS_NOTIFY            0x0001L` +
+and the button-style +
+`#define BS_NOTIFY           0x00004000L` +
+If we forget the leading `L` and write +
+`if (listbox_styles & BS_NOTIFY) { ... }` +
+we still produced syntactically valid code. 
+
+If the Windows team had decided to use unscoped enumerations instead of macros it wouldn't have helped: the arguments of builtin bitwise operators are subject to integral promotion, i.e. they forget about the enumeration's "semantic overhead". Even worse:
+
+
+* The builtin operators `&`, `|` and `~` return integer types. Assigning their results to enumeration-type variables require explicit casts, which is another source for errors undetectable by the compiler.
+* The builtin operators `&=`, `|=`, `^=` require the left-hand type to be arithmetic, which excludes enumerations.
+* Scoped enumerations prohibit implicit integral promotion and therefore don't work with builtin bitwise operators at all.
+
+(Scoped enumerations, of course, didn't exist when `Windows.h` was created. )
+
+On the other hand, enumerations, and especially scoped ones, improve the type-safety of our code:
+
+* variables and arguments of enumeration type can only by assigned (resp. invoked) with a value of the same type
+* no implicit integer promotion for scoped enumerations
+
+With Boost.Flags we can get both: support for all bitwise operators and type-safety. E.g. the following code
+[source, C++]
+----
+enum class E{ a=1, b=2, c=4, d=8 };
+template<> struct boost::flags::enable<E> : std::true_type {};
+----
+enables all the operators `~`, `&`, `|`, `^`, `&=`, `|=`, `^=` for `E`.
+// and return _appropriate_ types (_appropriate_ will be explained soon). 
+// So, all the bitwise operators work for `E` as they did e.g. for the macros from `Windows.h`.
+But even more:
+
+* the bitwise negation `~` changes the type from `E` to `complement<E>` and vice-versa
+** `operator ~(E) \-> complement<E>`
+** `operator ~(complement<E>) \-> E`
+* the binary operators require both arguments to be of type `E` or `complement<E>` (resp. a reference of it)
+
+But what's the deal with `complement<E>`? Here's a little tale:
+
+====
++++<span style="font-family:'Times New Roman'">
+Once, there was a kingdom. The queen had her own newspaper, where they used a set of flags for font-styles</span>+++
+[source, C++]
+----
+enum font_styles {
+    bold      = 1,
+    italic    = 2,
+    underline = 4
+};
+// special style for the Queen's proclamations
+static constexpr auto queen_of_hearts_proclamation = italic | underline;
+----
++++<span style="font-family:'Times New Roman'">
+One of the Queen's proclamations had been:<br/> <span style="font-size:125%"><i><u>All my proclamations shall be encoded in C++, the Queen!</u></i></span> <br/>And there were loads of them every day. <br/>
+A programmer for the newspaper, who was tired of typing <code>queen_of_hearts_proclamation</code> all the time, figured out that typing <code>~bold</code> instead also did the job. This saved him a lot of work. <br/>
+One day, the troublemaker Alice came to the kingdom and the Queen ordered the creation of a new font-style+++
+[source, C++]
+----
+    strikeout = 8
+----
++++<span style="font-family:'Times New Roman'">
+which should be used for Alice's name. So it got added to the `font_styles` enumeration.<br/>
+The next day the following proclamation appeared in the newspaper:<br/>
+<span style="font-size:125%"><i><s><u>All persons whose names are striken out are enemies of the kingdom, the Queen!</u></s></i></span><br/> 
+The last thing the programmer heard, as he ran away from the kingdom, was the queen shouting "Off with his head!".
++++
+====
+There are two morals of this tale:
+
+* a *semantical*: `~bold` isn't a set of font-modifications. It can be used to exclude boldness from a given set.
+* a *syntactical*: the negation flips all bits of the underlying integer. Even though `~bold` did the job in the beginning, it was different from `queen_of_hearts_proclamation`. 
+
+// '
+
+By distinguishing `E` and `complement<E>` in the type system, we keep the set of flags of type `E` apart from the set of negative masks for `E`.
+
+### Mathematical justification for `complement`
+
+This section provides a mathematical explanation, why `complement` is required. It can easily be skipped.
+
+* The underlying type `U` with the bitwise operations `~, &, |` and the constants `0` and `-1` (all bits set) form a _(bitcount of U)_-dimensional Boolean algebra latexmath:[(U,0,-1,{\raise.17ex\hbox{$\scriptstyle\sim$}},\&,\mid)] 
+* The defined flags (e.g. `bold`, `italic` etc.) with the bitwise operations `&, |` form a substructure latexmath:[(F,\&,\mid)] of latexmath:[U] which in general *is not closed under bitwise negation `~`*.
+* Building the closure latexmath:[\overline{F}] of latexmath:[F] wrt. latexmath:[{\raise.17ex\hbox{$\scriptstyle\sim$}}] generates a Boolean algebra which is a subalgebra latexmath:[U].
+
+Semantically the elements of latexmath:[\overline{F}\setminus F] are not combinations of flags but negative flag-masks. The distinction of `E` and `complement<E>` keeps them apart on the type-level. 
+
+Finally, for the binary operators we have (let `C` be a typedef for `complement<E>`)
+
+* `E operator & (E,E)`, `E operator & (C,E)`, `E operator & (E, C)` and `C operator & (C, C)`
+* `E operator | (E,E)`, `C operator | (C,E)`, `C operator | (E, C)` and `C operator | (C, C)`
+
+Which means, on the meta-level the typeset latexmath:[\{E, \textrm{C} \}] and the operation latexmath:[{\raise.17ex\hbox{$\scriptstyle\sim$}}], latexmath:[\&] and latexmath:[\mid] form a Boolean algebra.
+
+For the rare case where 
+
+* the set of flags semantically forms a Boolean algebra and additionally
+* all bits of the underlying type correspond to flags
+
+there exists the _no_complement_ option which sets `complement<E>` to `E`. 
+
+
+### From flags to `bool`
+
+Since scoped enumerations prevent implicit conversion to `bool`, Boost.Flags provides the following functions:
+
+* `any(e) \-> bool` : equivalent to `e != E{}`
+* `none(e) \-> bool`` : equivalent to `e == E{}`
+* `intersect(e1, e2) \-> bool` : equivalent to `e1 & e2 != E{}`
+* `disjoint(e1, e2) \-> bool` : equivalent to `e1 & e2 == E{}`
+* `contained(e1, e2) \-> bool` : equivalent to `e1 & ~e2 == E{}`
+
+But usually, we prefer to use operators.
+
+#### `not`, `not not`, why not?
+Instead of calling `any` and `none` we can use `!(e) \-> bool`
+
+* `!e` : equivalent to `none(e)`
+* `!!e` : equivalent to `any(e)`
+
+#### Everything in order?
+The relational operators `<`, `\<=`, `>` and `>=` are deleted by default for enabled enumerations.
+
+[WARNING]
+====
+Using built-in relational operators `<`, `\<=`, `>` and `>=` with flags in general is *strongly discouraged*. The built-in semantics do no coincide with flag entailment!
+====
+
+[NOTE]
+====
+For the mathematically inclined programmer: +
+The function `contained` reflects the partial order (in the mathematical sense) latexmath:[\leq] of the generated Boolean algebra.
+You can enable relational operators using the _rel_ops_ option which defines
+
+* `e1 \<= e2` : `contained(e1, e2)`
+* `e1 >= e2` : `contained(e2, e1)`
+* `e1 < e2` : `(contained(e1, e2) && e1 != e2)`
+* `e1 > e2` : `(contained(e2, e1) && e1 != e2)`
+====
+
+#### flags `and` flags
+Instead of `disjoint` and `intersect` we can write:
+
+* `!(e1 & e2)` : equivalent to `disjoint(e1, e2)`
+* `!!(e1 & e2)` : equivalent to `intersect(e1, e2)`
+
+If we update existing code with Boost.Flags, then expressions like `e1 & e2` in boolean contexts would have to be replaced by `!!(e1 & e2)`. This is tedious and requires adding parenthesis. +
+THerefore, Boost.Flags provides a pseudo operator `BF_AND` with the same precedence and associativity as `&` but returning a `bool`:
+
+* `e1 BF_AND e2` : equivalent to `!!(e1 & e2)` 
+
+[NOTE]
+====
+`BF_AND` is a macro defined as `& boost::flags::impl::pseudo_and_op_tag{} &`. +
+The first `&` stores its left-hand argument in an intermediate type, which the second `&` evaluates with its right-hand argument.
+====
+
+#### logically `and` and `or`
+Applying operator `&&` to flags turns out to be problematic.
+The semantics of its built-in versions does two things:
+
+* first convert the arguments to `bool` and  
+* then applies a Boolean AND operation to them 
+
+This is different from the semantics of the built-in bitwise `&` operator in a boolean context
+
+* first do a bitwise AND of the arguments
+* then convert the result to `bool` 
+
+Since operators `&` and `&&` can easily get confused (which again is not detectable by a compiler), Boost.Flags disables operator `&&` and to keep symmetry also operator `||`.
+
+[NOTE]
+====
+There are no overloads for operators `&&` and `||` on purpose! Those overloads would loose _short-circuit_ evaluation, which could lead to runtime errors in existing code.
+====
+
+
+### Convenience functions
+
+Additionally, Boost.Flags provides the following functions for an enabled enumeration `E`:
+
+* `make_null(E) \-> E` : returns `E{}`
+* `make_if(E e, bool set) \-> E` : returns `set ? e : E{}`
+* `modify(E value, E modification, bool set)  \-> E` : returns `set ? value | modification : value & ~modification`
+* `modify_inplace(E& value, E modification, bool set)  \-> E&` : equivalent to `value = modify(value, modification, set)`
+* `nth_bit(unsigned int n) \-> unsigned int` : returns `1 << n`
+
+### Summary
+
+Boost.Flags makes bitwise operations type-safe.
+
+For existing flag-sets, Boost.Flags provides an (almost) unintrusive way to detect semntical errors. The flag-sets can be turned into Boost.Flags enabled unscoped, or even better scoped, enumeration with almost no adjustments to the existing code required. 
+
+For new defined flag-sets, we strongly suggest to use Boost.Flags enabled scoped enumerations as they provide the most type-safety.
+
+
+
+
+
+The functions `intersect` and `disjoint` use the operator `&` in their definition, but using `&&` as replacement for `intersect` turns out problematic: +
+The built-in semantics of `&&` are _convert both operands to bool, then do a Boolean And_, which is obviously different from applying the bitwise `&` operator.
+
+
+
+
+
+
+
+
+For integer-types and unscope enumerations the language has built-in conversion to `bool` by checking values for `!= 0`. In that case
+[source, C++]
+----
+    if (flags_a)       {...}
+
+    // is equivalent to 
+    if (flags_a != 0)  {...}
+----
+When operators `&` and `&&` are involved
+[source, C++]
+----
+    if (flags_a & flags_b)  {...}   // evaluates: (flags_a & flags_b) != 0
+    if (flags_a && flags_b) {...}   // evaluates: (flags_a != 0) && (flags_b != 0)
+----
+we get different semantics for almost identical code, which is another source for error not undetectable by the compiler. +
+For Boost.Flags enabled enumerations the operator `&&` is deleted by default (though there is option _logical_and_operator_ to enable it and also define its semantics).
+
+But how can we elget
+For scoped enumerations there araise
+
+[source, C++]
+----
+    if (flags_a & flags_b)    // equivalent to (flags_a & flags_b) != 0
+    if (flags_a & flags_b)    // equivalent to (flags_a & flags_b) != 0
+    if (flags_a & flags_b)    // equivalent to (flags_a & flags_b) != 0
+    {...}
+----
+which seems reasonable, but we can also do
+[source, C++]
+----
+    if (flags_a && flags_b)    // equivalent to (flags_a != 0) && (flags_b != 0)
+    {...}
+----
+
+Putting an enabled flag into a boolean evaluation context won't compile.
+For non-enabled flags this conversion usually happens implicitly
+I
+At some point in our program
+Let's revisit the `pizza_toopings` enumeration from the example at the beginning.
+Let's get back to the scoped enumeration `E` which uses Boost.Flags
+[source, C++]
+----
+enum class E{ a=1, b=2, c=4, d=8 };
+template<> struct boost::flags::enable<E> : std::true_type {};
+----
+
+Eventually, we have to turn a flag into a `bool` for example
+[source, C++]
+----
+    E flags = get_flags();
+    // test for E::a
+    if (flags & E::a) {...}     // illegal!
+----
+From the previous section we learned that `flags & E::a` has type `E`. But `E` is a scoped enumeration and prevents implicit conversion to `bool`. So the code is illegal!
+(If `E` was an unscoped it would of course work.)
+
+To convert from `E` to `bool` Boost.Flags provides the following functions:
+
+* `any(e)` : equivalent to `e != E{}`
+* `none(e)` : equivalent to `e == E{}`
+* `intersect(e1, e2)` : equivalent to `e1 & e2 != E{}`
+* `disjoint(e1, e2)` : equivalent to `e1 & e2 == E{}`
+* `contained(e1, e2)` : equivalent to `e1 & ~e2 == E{}`
+
+Usually we prefer to use operators instead of calling functions when dealing with flags. For the functions `any` and `none` we have
+
+* `!e` : equivalent to `none(e)`
+* `!!e` : equivalent to `any(e)`
+
+The function `contained` reflects the partial order `\<=` of the Boolean algebra.
+By default the relational operators `<`, `\<=`, `>` and `>=` are deleted for enabled enumerations, but you can opt-in using the _rel_ops_ option which defines
+
+* `e1 \<= e2` : `contained(e1, e2)`
+* `e1 >= e2` : `contained(e2, e1)`
+* `e1 < e2` : `(contained(e1, e2) && e1 != e2)`
+* `e1 > e2` : `(contained(e2, e1) && e1 != e2)`
+
+[WARNING]
+====
+Using built-in relational operators `<`, `\<=`, `>` and `>=` with flags is *strongly discouraged*. The built-in semantics do no coincide with flag entailment!
+====
+
+The functions `intersect` and `disjoint` use the operator `&` in their definition, but using `&&` as replacement for `intersect` turns out problematic: +
+The built-in semantics of `&&` are _convert both operands to bool, then do a Boolean And_, which is obviously different from applying the bitwise `&` operator.
+
+But operators `&&` and `||` turn out to be problematic as they can easily get confused with their bitwise counterparts. Furthermore, the built-in semantics of operator `&&` is
+
+
+
+
+So, by default they are deleted for Boost.Flags enabled enumerations. 
+Optionally, the operator `&&` can be enabled
+
+* `e1 && e2` : equivalent to `intersect(e1, e2)`
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+Usually, the flags
+But in general we do not have flags assigned to all bits of the underlying type. Assume that the number of flags is `m` with `m < n` (neglecting those cases where the flag-set really forms a Boolean Algebra and matches exactly the dimension of the underlying type). +
+Within our program the unused bits are always all `0` or all `1` and they behave like a one dimensional Boolean Algebra, thus   within our program only use a `n+1`-dimensional subalgebra of `Underlying` (`n`-flags plus one dima)  
+
+The elements with exactly one bit set to 1 (2^0^, 2^1^, ... , 2^n-1^) are called the _atoms_. Applying operator `|` we can generate all other elements but 0 from the atoms.
+
+The enumerators defined in `E` (here we only consider those with exactly one bit set to 1) form a subset of the atoms of that Boolean Algebra. Adding 0 and applying operator `|` generates a sub-structure of the Boolean Algebra that is closed under the operations `|` and `&` but in general not for `~`.
+
+
+
+
+the bitwise operations are applied simultaneously to the bits with the same index, i.e. pointwise in mathematical terms.
+
+
+
+
+
+[source, C++]
+----
+enum class modifiers{ bold=1, italic=2, underline=4 };
+template<> struct boost::flags::enable<modifiers> : std::true_type {};
+
+// some modifiers-constants
+static constexpr auto emphasize = modifiers::italic | modifiers::underline;
+static constexpr auto not_bold = ~modifiers::bold;
+----
+
+From a naive point of view `emphasize` is the same as `not_bold` should hold 
+
+which can be arbitrarily combined, and we have a function
+[source, C++]
+----
+void set_modifiers(modifiers);
+----
+Further, assuming `E` and `complement<E>` would be the same type then the following code would be legal:
+[source, C++]
+----
+auto not_bold = ~modifiers::bold;
+set_modifiers(not_bold);
+----
+But what would it mean? The negation of `modifiers::bold` flips all bits of its representing value. It has set the bits for `italic`, `struckout` and `underline` and would generate _italic_, [.underline]#underlined# and [.line-through]#struck-out# [.underline]#[.line-through]_text_# (not to mention all the styles later maybe added). This is presumably not what was indented. 
+
+Using Boost.Flags has made the code `set_modifiers(not_bold)` illegal. The `~` operator changes the type from `E` to `complement<E>` to reflect the semantic change from a set of flags to a negated bit-mask.
+ The expression `~modifiers::bold` is not a set of modifiers. It is a bit-mask indicating that the text *must not be bold*. 
+
+How all of this relates to Boolean Algebras will be explained in the next section.
+
+#### Why do we need to distinguish `E` and `complement<E>`?
+Assume we have flags for font-modifications
+[source, C++]
+----
+enum class modifiers{ bold=1, italic=2, struckout=4, underline=8 };
+
+template<> struct boost::flags::enable<modifiers> : std::true_type {};
+----
+which can be arbitrarily combined, and we have a function
+[source, C++]
+----
+void set_modifiers(modifiers);
+----
+Further, assuming `E` and `complement<E>` would be the same type then the following code would be legal:
+[source, C++]
+----
+auto not_bold = ~modifiers::bold;
+set_modifiers(not_bold);
+----
+But what would it mean? The negation of `modifiers::bold` flips all bits of its representing value. It has set the bits for `italic`, `struckout` and `underline` and would generate _italic_, [.underline]#underlined# and [.line-through]#struck-out# [.underline]#[.line-through]_text_# (not to mention all the styles later maybe added). This is presumably not what was indented. 
+
+Using Boost.Flags has made the code `set_modifiers(not_bold)` illegal. The `~` operator changes the type from `E` to `complement<E>` to reflect the semantic change from a set of flags to a negated bit-mask.
+ The expression `~modifiers::bold` is not a set of modifiers. It is a bit-mask indicating that the text *must not be bold*. 
+
+How all of this relates to Boolean Algebras will be explained in the next section.
+
+#### Why do we need to distinguish `E` and `complement<E>`? (the mathematical version)
+
+Let's assume that the underlying type of `E` has n bits. The bitwise operations are applied simultaneously to the bits with the same index, i.e. pointwise in mathematical terms. It follows that the underlying type with the operations `~, &, |` and the constants `0` and `0b1...1` (n-times) forms an n-dimensional Boolean Algebra. 
+
+The elements with exactly one bit set to 1 (2^0^, 2^1^, ... , 2^n-1^) are called the _atoms_. Applying operator `|` we can generate all other elements but 0 from the atoms.
+
+The enumerators defined in `E` (here we only consider those with exactly one bit set to 1) form a subset of the atoms of that Boolean Algebra. Adding 0 and applying operator `|` generates a sub-structure of the Boolean Algebra that is closed under the operations `|` and `&` but in general not for `~`.
+
+Mathematically
+
+
+
+
+* `E operator &(E, E)`, `E operator |(E, E)`, `E operator ^(E, E)`
+* `&, |, ^ : (E, E) -> E`
+* `&=, |=, ^= : (E&, E) -> E&`
+
+while the bitwise negation
+
+** `complement<E> operator ~ (E)`
+** `E operator ~ (complement<E>)`
+
+
+maps between distinct types `E` and `complement<E>`, thus prohibiting the accidental use a bit-mask as a flag-set (see below for an explanation).
+
+Taking also the type `complement<E>` into account we get the following map
+
+[cols="1,1,1"]
+|===
+|
+|`E`
+|`complement<E>`
+
+|`E`
+|`&,\|,^:E`
+|`&:E` , `\|,^:complement<E>`
+
+|`complement<E>`
+|`&:E` , `\|,^:complement<E>`
+|`&,\|:complement<E>` , `^:E`
+|===
+
+
+
+Here's a small example showing its basic functionality 
+
+```
+#include <iostream>
+
+// inlcude Boost.Flags
+#include "flags.hpp"
+
+enum class pizza_topping_enum {
+    tomato      = lunaticpp::flags::nth_bit(0), // == 0x01
+    cheese      = lunaticpp::flags::nth_bit(1), // == 0x02
+    salami      = lunaticpp::flags::nth_bit(2), // == 0x04
+    ham         = lunaticpp::flags::nth_bit(3), // == 0x08
+    olives      = lunaticpp::flags::nth_bit(4), // == 0x10
+    mushrooms   = lunaticpp::flags::nth_bit(5), // == 0x20
+};
+
+enum class ice_cream_enum {
+    vanilla     = lunaticpp::flags::nth_bit(0), // == 0x01
+    chocolate   = lunaticpp::flags::nth_bit(1), // == 0x02
+    strawberry  = lunaticpp::flags::nth_bit(2), // == 0x04
+};
+
+// opt-in to Boost.Flags for pizza_topping_enum
+template<> struct lunaticpp::flags::enable<pizza_topping_enum> : std::true_type {};
+
+// opt-in to Boost.Flags for ice_cream_enum
+template<> struct lunaticpp::flags::enable<ice_cream_enum> : std::true_type {};
+
+
+// some preassembled pizza-topping sets
+static constexpr auto pizza_bianca = pizza_topping_enum{};
+
+static constexpr auto pizza_salami = pizza_topping_enum::tomato
+                                     | pizza_topping_enum::cheese 
+                                     | pizza_topping_enum::salami;
+
+static constexpr auto pizza_mista = pizza_topping_enum::tomato
+                                     | pizza_topping_enum::cheese
+                                     | pizza_topping_enum::salami
+                                     | pizza_topping_enum::ham
+                                     | pizza_topping_enum::olives
+                                     | pizza_topping_enum::mushrooms;
+
+// some topping filters
+static constexpr auto meat_free_filter = ~(pizza_topping_enum::ham | pizza_topping_enum::salami);
+static constexpr auto lactose_free_filter = ~(pizza_topping_enum::cheese);
+
+void order_pizza(pizza_topping_enum toppings) {
+    if (!toppings) {
+        std::cout << "pizza bianca ordered\n";
+    }
+    else {
+        std::cout << "pizza ordered with";
+        if (toppings && pizza_topping_enum::tomato) { std::cout << " tomato"; };
+        if (toppings && pizza_topping_enum::cheese) { std::cout << " cheese"; };
+        if (toppings && pizza_topping_enum::salami) { std::cout << " salami"; };
+        if (toppings && pizza_topping_enum::ham) { std::cout << " ham"; };
+        if (toppings && pizza_topping_enum::olives) { std::cout << " olives"; };
+        if (toppings && pizza_topping_enum::mushrooms) { std::cout << " mushrooms"; };
+        std::cout << "\n";
+    }
+}
+
+constexpr pizza_topping_enum make_vegetarian(pizza_topping_enum toppings) {
+    return toppings & meat_free_filter;
+}
+
+int main() {
+    order_pizza(pizza_bianca);
+    order_pizza(pizza_mista);
+    order_pizza(make_vegetarian(pizza_mista));
+
+//    order_pizza(lactose_free_filter);                   // syntax error - cannot order a topping-filter
+
+    auto mixed_ice_cream = ice_cream_enum::vanilla | ice_cream_enum::chocolate | ice_cream_enum::strawberry;
+    //    auto weird_toppings = pizza_bianca | mixed_ice_cream; // sorry, we do not serve that
+
+    auto my_toppings = pizza_salami;
+    my_toppings |= pizza_topping_enum::olives;  // add olives
+    my_toppings &= lactose_free_filter;         // remove lactose
+    my_toppings ^= pizza_topping_enum::mushrooms;   // toggle the mushrooms
+
+    // only order if toppings contain tomato
+    if (my_toppings && pizza_topping_enum::tomato) {
+        order_pizza(my_toppings);
+    }
+
+}
+```
+
+
+
+The bitwise-operations &, &=, |, |=, ^ and ^= when applied to an enabled enumeration all return the type of the enumeration again.
+The negation-operation operator~(E e) returns as type bitmask to account for the fact that the negation of a set of flags is in general 
+not a set of flags but has also all _unused_ bits sets.
+From a mathematical point of view speaking are the operations ~, &, | are also a boolean algebra on the the set {E, bitmask}). The library takes this into account and e.g. only prevents modifying operatiors &=, |= and ^= for incompatible types. E.g. operator |=(E& e1, bitmaks e2) is not allowed as it would turn e1 from a combinations of flags into a bitmask.
+
+
+
+
+`boost::throw_exception(x);` is a replacement for `throw x;` that both
+degrades gracefully when exception handling support is not available, and
+integrates the thrown exception into facilities provided by
+link:../../../exception/index.html[Boost.Exception], such as automatically
+providing a base class of type `boost::exception` and support for
+`boost::exception_ptr`.
+
+When exception handling is not available, the function is only declared, but
+not defined. This allows users to provide their own definition.
+
+An overload for `boost::throw_exception` that takes a
+link:../../../assert/doc/html/assert.html#source_location_support[`boost::source_location`]
+is provided. It records the supplied source location into the `boost::exception`
+base class, from where it can later be retrieved when the exception is caught.
+link:../../../exception/doc/diagnostic_information.html[`boost::diagnostic_information`]
+automatically displays the stored source location.
+
+The macro `BOOST_THROW_EXCEPTION(x)` expands to
+`::boost::throw_exception(x, BOOST_CURRENT_LOCATION)`, passing the current source
+location.
+
+When integration with Boost.Exception and `boost::exception_ptr` is not needed,
+the function `boost::throw_with_location` can be used instead. It also throws
+a user-provided exception, associating it with a supplied or inferred source
+location, but does not supply the `boost::exception` base class and does not
+enable `boost::exception_ptr` support.
+
+The source location of the exception thrown by `boost::throw_with_location`
+can be retrieved, after `catch(std::exception const & x)`, by using
+`boost::get_throw_location(x)`.
+
+`boost::get_throw_location` also works for exceptions thrown by the two argument
+overload of `boost::throw_exception`, or by `BOOST_THROW_EXCEPTION`; in this case
+it returns the source location stored in the `boost::exception` base class.
+
+
+////
+Copyright 2002, 2007, 2014, 2017 Peter Dimov
+Copyright 2011 Beman Dawes
+Copyright 2015 Ion Gaztañaga
+
+Distributed under the Boost Software License, Version 1.0.
+
+See accompanying file LICENSE_1_0.txt or copy at
+http://www.boost.org/LICENSE_1_0.txt
+////
+
+[#assertion_macros]
+# Assertion Macros, <boost/assert.hpp>
+:toc:
+:toc-title:
+:idprefix:
+
+## BOOST_ASSERT
+
+The header `<boost/assert.hpp>` defines the macro `BOOST_ASSERT`,
+which is similar to the standard `assert` macro defined in `<cassert>`.
+The macro is intended to be used in both Boost libraries and user
+code.
+
+* By default, `BOOST_ASSERT(expr)` expands to `assert(expr)`.
+
+* If the macro `BOOST_DISABLE_ASSERTS` is defined when `<boost/assert.hpp>`
+  is included, `BOOST_ASSERT(expr)` expands to `((void)0)`, regardless of whether
+  the macro `NDEBUG` is defined. This allows users to selectively disable `BOOST_ASSERT` without 
+  affecting the definition of the standard `assert`.
+
+* If the macro `BOOST_ENABLE_ASSERT_HANDLER` is defined when `<boost/assert.hpp>`
+is included, `BOOST_ASSERT(expr)` expands to
++
+```
+(BOOST_LIKELY(!!(expr))? ((void)0): ::boost::assertion_failed(#expr,
+    BOOST_CURRENT_FUNCTION, __FILE__, __LINE__))
+```
++
+That is, it evaluates `expr` and if it's false, calls
+`::boost::assertion_failed(#expr, <<current_function.adoc#boost_current_function,BOOST_CURRENT_FUNCTION>>, \\__FILE__, \\__LINE__)`.
+This is true regardless of whether `NDEBUG` is defined.
++
+`boost::assertion_failed` is declared in `<boost/assert.hpp>` as
++
+```
+namespace boost
+{
+    void assertion_failed(char const * expr, char const * function,
+        char const * file, long line);
+}
+```
++
+but it is never defined. The user is expected to supply an appropriate definition.
+
+* If the macro `BOOST_ENABLE_ASSERT_DEBUG_HANDLER` is defined when `<boost/assert.hpp>`
+is included, `BOOST_ASSERT(expr)` expands to `((void)0)` when `NDEBUG` is
+defined. Otherwise the behavior is as if `BOOST_ENABLE_ASSERT_HANDLER` has been defined.
+
+As is the case with `<cassert>`, `<boost/assert.hpp>`
+can be included multiple times in a single translation unit. `BOOST_ASSERT`
+will be redefined each time as specified above.
+
+## BOOST_ASSERT_MSG
+
+The macro `BOOST_ASSERT_MSG` is similar to `BOOST_ASSERT`, but it takes an additional argument,
+a character literal, supplying an error message.
+
+* By default, `BOOST_ASSERT_MSG(expr,msg)` expands to `assert\((expr)&&(msg))`.
+
+* If the macro `BOOST_DISABLE_ASSERTS` is defined when `<boost/assert.hpp>`
+is included, `BOOST_ASSERT_MSG(expr,msg)` expands to `((void)0)`, regardless of whether
+the macro `NDEBUG` is defined.
+
+* If the macro `BOOST_ENABLE_ASSERT_HANDLER` is defined when `<boost/assert.hpp>`
+is included, `BOOST_ASSERT_MSG(expr,msg)` expands to
++
+```
+(BOOST_LIKELY(!!(expr))? ((void)0): ::boost::assertion_failed_msg(#expr,
+    msg, BOOST_CURRENT_FUNCTION, __FILE__, __LINE__))
+```
++
+This is true regardless of whether `NDEBUG` is defined.
++
+`boost::assertion_failed_msg` is declared in `<boost/assert.hpp>` as
++
+```
+namespace boost
+{
+    void assertion_failed_msg(char const * expr, char const * msg,
+        char const * function, char const * file, long line);
+}
+```
++
+but it is never defined. The user is expected to supply an appropriate definition.
+
+* If the macro `BOOST_ENABLE_ASSERT_DEBUG_HANDLER` is defined when `<boost/assert.hpp>`
+is included, `BOOST_ASSERT_MSG(expr)` expands to `((void)0)` when `NDEBUG` is
+defined. Otherwise the behavior is as if `BOOST_ENABLE_ASSERT_HANDLER` has been defined.
+
+As is the case with `<cassert>`, `<boost/assert.hpp>`
+can be included multiple times in a single translation unit. `BOOST_ASSERT_MSG`
+will be redefined each time as specified above.
+
+## BOOST_VERIFY
+
+The macro `BOOST_VERIFY` has the same behavior as `BOOST_ASSERT`, except that 
+the expression that is passed to `BOOST_VERIFY` is always 
+evaluated. This is useful when the asserted expression has desirable side 
+effects; it can also help suppress warnings about unused variables when the 
+only use of the variable is inside an assertion.
+
+* If the macro `BOOST_DISABLE_ASSERTS` is defined when `<boost/assert.hpp>`
+  is included, `BOOST_VERIFY(expr)` expands to `\((void)(expr))`.
+
+* If the macro `BOOST_ENABLE_ASSERT_HANDLER` is defined when `<boost/assert.hpp>`
+  is included, `BOOST_VERIFY(expr)` expands to `BOOST_ASSERT(expr)`.
+
+* Otherwise, `BOOST_VERIFY(expr)` expands to `\((void)(expr))` when `NDEBUG` is
+  defined, to `BOOST_ASSERT(expr)` when it's not.
+
+## BOOST_VERIFY_MSG
+
+The macro `BOOST_VERIFY_MSG` is similar to `BOOST_VERIFY`, with an additional parameter, an error message.
+
+* If the macro `BOOST_DISABLE_ASSERTS` is defined when `<boost/assert.hpp>`
+  is included, `BOOST_VERIFY_MSG(expr,msg)` expands to `\((void)(expr))`.
+
+* If the macro `BOOST_ENABLE_ASSERT_HANDLER` is defined when `<boost/assert.hpp>`
+  is included, `BOOST_VERIFY_MSG(expr,msg)` expands to `BOOST_ASSERT_MSG(expr,msg)`.
+
+* Otherwise, `BOOST_VERIFY_MSG(expr,msg)` expands to `\((void)(expr))` when `NDEBUG` is
+  defined, to `BOOST_ASSERT_MSG(expr,msg)` when it's not.
+
+## BOOST_ASSERT_IS_VOID
+
+The macro `BOOST_ASSERT_IS_VOID` is defined when `BOOST_ASSERT` and `BOOST_ASSERT_MSG` are expanded to `((void)0)`.
+Its purpose is to avoid compiling and potentially running code that is only intended to prepare data to be used in the assertion.
+
+```
+void MyContainer::erase(iterator i)
+{
+// Some sanity checks, data must be ordered
+#ifndef BOOST_ASSERT_IS_VOID
+
+    if(i != c.begin()) {
+        iterator prev = i;
+        --prev;
+        BOOST_ASSERT(*prev < *i);
+    }
+    else if(i != c.end()) {
+        iterator next = i;
+        ++next;
+        BOOST_ASSERT(*i < *next);
+    }
+
+#endif
+
+    this->erase_impl(i);
+}
+```      
+
+* By default, `BOOST_ASSERT_IS_VOID` is defined if `NDEBUG` is defined.
+* If the macro `BOOST_DISABLE_ASSERTS` is defined, `BOOST_ASSERT_IS_VOID` is always defined.
+* If the macro `BOOST_ENABLE_ASSERT_HANDLER` is defined, `BOOST_ASSERT_IS_VOID` is never defined.
+* If the macro `BOOST_ENABLE_ASSERT_DEBUG_HANDLER` is defined, then `BOOST_ASSERT_IS_VOID` is defined when `NDEBUG` is defined.
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+So, let's take a look on the different ways flags can be used.
+
+First let's look at the use of macros / integer constants.
+Here an example from the Win32-api. In `<winuser.h>` we can find the definition of the Windows listbox control styles
+```
+#define LBS_NOTIFY            0x0001L
+#define LBS_SORT              0x0002L
+#define LBS_NOREDRAW          0x0004L
+#define LBS_MULTIPLESEL       0x0008L
+```
+
+in the same file we can also find the styles for button controls
+
+```
+#define BS_MULTILINE        0x00002000L
+#define BS_NOTIFY           0x00004000L
+#define BS_FLAT             0x00008000L
+```
+
+Now, when we create a variable with the style of a listbox
+``` 
+uint32_t my_listbox_style = LBS_NOTIFY | LBS_SORT | LBS_MULTIPLESEL;
+```
+
+and check later, whether it has the _notify_ flag set
+```
+    if (listbox_style & BS_NOTIFY) { ... }
+``` 
+
+we accidentially wrote `BS_NOTIFY` instead of `LBS_NOTIFY`, still the code compiles without warning as everything is convertible to `uint32_t`. 
+
+For the same reason, there is no way to prohibit accedintially passing a variable of flags to a function, where flags from a sematically different set were expected.
+
+
+When we use unscoped enumerations instead of an integer type we can address the latter problem, but the built-in bitwise operators still are problematic:
+
+- the bitwise operators `&`, `|` and `^` even work when the arguments are of different enumeration-types
+- the result type of `&`, `|` and `^` is always an integer type
+- as a conseqence of the previous item, built-in compound assignment operators `&=`, `|=` and `^=` are not supported
+
+
