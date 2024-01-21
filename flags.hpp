@@ -1,6 +1,6 @@
 //////////////////////////////////////////////////////////////////
 //
-//  Biist.Flags
+//  Boost.Flags
 //  non-intrusive bitwise operators for flag-like enumerations
 //
 //  Copyright Tobias Loew 2023. Use, modification and
