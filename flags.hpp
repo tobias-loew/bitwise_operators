@@ -1,7 +1,7 @@
 //////////////////////////////////////////////////////////////////
 //
-//  lunaticpp::flags
-//  non-intrusive bitwise operators for flag-like enumerations library
+//  Biist.Flags
+//  non-intrusive bitwise operators for flag-like enumerations
 //
 //  Copyright Tobias Loew 2023. Use, modification and
 //  distribution is subject to the Boost Software License, Version
@@ -12,8 +12,8 @@
 //
 
 
-#ifndef FLAGS_HPP_INCLUDED
-#define FLAGS_HPP_INCLUDED
+#ifndef BOOST_FLAGS_HPP_INCLUDED
+#define BOOST_FLAGS_HPP_INCLUDED
 
 #include <type_traits>
 #include <boost/config.hpp>
@@ -21,18 +21,59 @@
 
 /////////////////////////////////////////////////////////////////
 //
-// purpose: enables type-safe bitwise operations on a flag-like enumeration
-// usage: to enable bitwise operation for enum "enumeration" define
+// purpose: 
+// 
+// - provides type-safe bitwise operations for flag-like 
+//   scoped / unscoped enumerations
+// 
+// - turns logical errors undetectable by th compiler
+//   into type errors
+// 
+// = is non- ntrusive, only requires a template specialization
 //
+// Example:
 /*
 
-template<>
-struct lunaticpp::flags::enable<enumeration> : std::true_type {};
+    enum class pizza_toppings {
+        tomato      = boost::flags::nth_bit(0), // == 0x01
+        cheese      = boost::flags::nth_bit(1), // == 0x02
+        salami      = boost::flags::nth_bit(2), // == 0x04
+        olives      = boost::flags::nth_bit(3), // == 0x08
+    };
+    // enable Boost.Flags for pizza_toppings
+    template<> struct boost::flags::enable<pizza_toppings> : std::true_type {};
 
-*/
-//
-// example:
-/*
+    enum class ice_cream_flavours {
+        vanilla     = boost::flags::nth_bit(0), // == 0x01
+        chocolate   = boost::flags::nth_bit(1), // == 0x02
+        strawberry  = boost::flags::nth_bit(2), // == 0x04
+    };
+    // enable Boost.Flags for ice_cream_flavours
+    template<> struct boost::flags::enable<ice_cream_flavours> : std::true_type {};
+
+    void order_pizza(pizza_toppings toppings) { ... }
+    void order_ice_cream(ice_cream_flavours flavours) { ... }
+
+    int main() {
+        pizza_toppings toppings = pizza_toppings::tomato | pizza_toppings::cheese; // a decent start
+        toppings |= pizza_toppings::salami | pizza_toppings::olives;    // even better
+        order_pizza(toppings);                              // order main course
+        order_pizza(toppings & ~pizza_toppings::salami);    // order a vegetarian pizza
+        order_ice_cream(ice_cream_flavours::vanilla);       // order desert
+
+        // error: negative mask is not a pizza topping
+        order_pizza(~pizza_toppings::olives);
+
+        // error: mixing different enumerations
+        toppings |= ice_cream_flavours::strawberry;
+
+        // error: called with wrong enumeration
+        order_ice_cream(toppings);
+    }
+
+
+
+    // another example
 
     enum class flags_t {
         a = 0x1,
@@ -41,81 +82,53 @@ struct lunaticpp::flags::enable<enumeration> : std::true_type {};
     };
 
     enum class flags2_t {
-        e = lunaticpp::flags::nth_bit(0), // == 0x1
-        f = lunaticpp::flags::nth_bit(1), // == 0x2
-        g = lunaticpp::flags::nth_bit(2), // == 0x4
+        e = boost::flags::nth_bit(0), // == 0x1
+        f = boost::flags::nth_bit(1), // == 0x2
+        g = boost::flags::nth_bit(2), // == 0x4
     };
 
     template<>
-    struct lunaticpp::flags::enable<flags_t> : std::true_type {};
+    struct boost::flags::enable<flags_t> : std::true_type {};
 
     template<>
-    struct lunaticpp::flags::enable<flags2_t> : std::true_type {};
+    struct boost::flags::enable<flags2_t> : std::true_type {};
 
     void foo() {
-        auto ab = flags_t::a | flags_t::b;  // type of ab is flags_t
-        auto bc = flags_t::b | flags_t::c;  // type of bc is flags_t
-        auto ab_and_bc = ab & bc;           // type of ab_and_bc is flags_t
-        auto not_a = ~flags_t::a;           // type of not_a is lunaticpp::flags::complement<flags_t>
-        auto not_not_a = ~not_a;            // type of not_not_a is flags_t
+        auto ab = flags_t::a | flags_t::b;  // type: flags_t
+        auto bc = flags_t::b | flags_t::c;  // type: flags_t
+        auto ab_and_bc = ab & bc;           // type: flags_t
+        auto not_a = ~flags_t::a;           // type: boost::flags::complement<flags_t>
+        auto not_not_a = ~not_a;            // type: flags_t
+
+        auto not_a_and_ab = not_a & ab;     // type: flags_t
+        auto not_a_or_ab = not_a | ab;      // type: boost::flags::complement<flags_t>
 
         // auto ae = flags_t::a | flags2_t::e;  // compilation error (different enumerations)
 
 
         // test with boolean result
-        if (ab_and_bc && not_a) {
+        // using pseudo operator BF_AND
+        // BF_AND(x,y) -> bool
+        // BF_AND(x,y) ::= (x != 0) && (y != 0) 
+        if (ab_and_bc BF_AND not_a) {
             // ...
         }
     }
 */
 
-// consider 
-// 
-// enum [class] f : underlying_type {
-// bit_0 = 0x1      // 2^0
-// bit_1 = 0x2      // 2^1
-// ...
-// bit_{n-1} = 1 << n   // 2^n
-// };
-// 
-// where the underlying_type has m bits (m>=n)
-// 
-// This library consideres bit_0, ... , bit_{n-1} as the basis of an n-dimensional boolean algebra (BA).
-// This BA is closed wrt. the bitwise operations `&` and `|`, but in general (i.e. if m > n) it is not closed wrt. complement `~`,
-// as complement also flips bits n, ... , m-1.
-// Furthermore, when `s` is a set of options from enum `f`, its complement `~s` generally should *not* be considered as
-// a set of options from enum `f` but as its *negation* usually used too diable those options using `&`.
-// Thus, lunaticpp::flags differentiates between the BA spanned by the flags specified by `f` and its complement in the BA spanned
-// by all bits of the underlying type - the distintion is done by wrapping a `complement`-template aroud the return-type for the complement.
-// 
 
-
-namespace lunaticpp {
+namespace boost {
     namespace flags {
 
-        // non-intrusive opt-in to operations of lunaticpp::flags
+        // non-intrusive opt-in to operations of boost::flags
         // specialize
-        // `template<> struct lunaticpp::flags::enable<my_enum> : std::true_type {};`
+        // `template<> struct boost::flags::enable<my_enum> : std::true_type {};`
         // to enable operations for scoped or unscoped enums
         template<typename E>
         struct enable : std::false_type {};
 
-        //enum class options_enum {
-        //    disable_order_compare = 0x1,
-        //    enable_logical_bool = 0x2,
-        //    enable_utility_functions = 0x4,
-        //};
-        //template<>
-        //struct enable<options_enum> : std::true_type {};
 
-        //template<options_enum options_>
-        //struct options_t {
-        //    static constexpr options_enum options = options_;
-        //};
-
-        struct option_disable_logical_bool {};
-        struct option_disable_utility_functions {};
-
+        struct option_disable_complement {};
 
         // indicates invalid/incompatible types for operation
         struct error_tag {};
@@ -153,6 +166,9 @@ namespace lunaticpp {
         template<typename E>
         struct is_enabled;
 
+        template<typename T>
+        concept IsComplementDisabled =
+            std::is_base_of_v<option_disable_complement, enable<enum_type_t<T>>>;
 
         // test if E is a flags-enum:
         // detects double-negation
@@ -203,11 +219,51 @@ namespace lunaticpp {
 
 
         template<typename T1, typename T2>
-        concept IsSameFlags = std::is_same<enum_type_t<T1>, enum_type_t<T2>>::value&&
-            IsFlags<T1>&& IsFlags<T2>;
+        concept IsCompatible = std::is_same<enum_type_t<T1>, enum_type_t<T2>>::value;
+
+        template<typename T1, typename T2>
+        concept IsCompatibleFlags = IsCompatible<T1, T2> &&
+            IsFlags<T1> && IsFlags<T2>;
+
+        template<typename T1, typename T2>
+        concept IsCompatibleComplement = IsCompatible<T1, T2>&&
+            IsComplement<T1>&& IsComplement<T2>;
+
+        template<typename T1, typename T2>
+        concept IsCompatibleFlagsOrComplement = IsCompatible<T1, T2>&&
+            ((IsFlags<T1>&& IsFlags<T2>) || (IsComplement<T1>&& IsComplement<T2>));
 
 
         namespace impl {
+
+            // NULL constant tag
+            struct null_tag {};
+
+            // for pseudo operator BF_AND
+            struct pseudo_and_op_tag {};
+
+            template<typename T>
+            struct pseudo_and_op_intermediate_t {
+                T value;
+            };
+
+            template<typename T>
+            struct is_pseudo_and_op_intermediate : 
+                std::false_type {};
+
+            template<typename E>
+            struct is_pseudo_and_op_intermediate<pseudo_and_op_intermediate_t<E>> : 
+                std::true_type {};
+
+            template<typename E>
+            struct is_pseudo_and_op_type :
+                    std::disjunction<
+                    std::is_same<std::remove_cvref_t<E>, pseudo_and_op_tag>,
+                    is_pseudo_and_op_intermediate<std::remove_cvref_t<E>>
+                    > {};
+
+            template<typename T>
+            static constexpr bool is_pseudo_and_op_type_v = is_pseudo_and_op_type<T>::value;
 
             // calculate whether result Op(T1) is in the original or the complemented boolean algebra
             // always returns the canonical form (either the enum or its negation, never a double negated enum)
@@ -217,11 +273,15 @@ namespace lunaticpp {
 
                 using type = typename std::conditional<
                     enable<E1>::value,        // check if undelying enum is enabled
-                    typename std::conditional<
-                    UnOp<is_complement<T1>>::value,
-                    complement<E1>,
-                    E1
-                    >::type,
+                    typename std::conditional_t<
+                        IsComplementDisabled<T1>,
+                        T1,
+                        typename std::conditional_t<
+                            UnOp<is_complement<T1>>::value,
+                            complement<E1>,
+                            E1
+                        >
+                    >,
                     error_tag
                 >::type;
             };
@@ -261,7 +321,11 @@ namespace lunaticpp {
                 using E1 = enum_type_t<T1>;
                 using E2 = enum_type_t<T2>;
                 static_assert(
-                    (!(enable<E1>::value || enable<E2>::value) || std::is_same_v<E1, E2>)
+                    (!(enable<E1>::value || enable<E2>::value) 
+                        || std::is_same_v<E1, E2>
+                        || is_pseudo_and_op_type_v<E1>
+                        || is_pseudo_and_op_type_v<E2>
+                        )
                     );
                 using type = void;
             };
@@ -284,6 +348,34 @@ namespace lunaticpp {
             template<typename T>
             constexpr auto get_underlying(complement<T> value) {
                 return get_underlying(value.value);
+            }
+
+
+            // normalize `complement`s to zero or one
+
+            // test for outer `double complement`
+            template<typename E>
+            struct is_double_outer_complement : std::false_type {};
+                
+            template<typename E>
+            struct is_double_outer_complement<complement<complement<E>>> :
+                is_enabled<E>                       // ensure it's enabled
+            {};
+
+
+            template<typename E>
+            concept IsDoubleOuterComplement = is_double_outer_complement<std::remove_cvref_t<E>>::value;
+
+
+            template<typename T>
+            constexpr auto&& get_normalized(T&& value) {
+                return std::forward<T>(value);
+            }
+
+            template<typename T>
+            requires IsDoubleOuterComplement<T>
+            constexpr decltype(auto) get_normalized(T&& value) {
+                return get_normalized(std::forward<T>(value).value.value);
             }
 
         } // namespace impl
@@ -395,7 +487,7 @@ namespace lunaticpp {
             requires IsFlags<T>
         BOOST_ATTRIBUTE_NODISCARD
             constexpr bool
-            operator==(T value, std::nullptr_t) {
+            operator==(T value, nullptr_t) {
             return impl::get_underlying(value) == 0;
         }
 
@@ -406,7 +498,7 @@ namespace lunaticpp {
             requires IsFlags<T>
         BOOST_ATTRIBUTE_NODISCARD
             constexpr bool
-            operator==(std::nullptr_t, T value) {
+            operator==(nullptr_t, T value) {
             return impl::get_underlying(value) == 0;
         }
 
@@ -414,7 +506,7 @@ namespace lunaticpp {
             requires IsFlags<T>
         BOOST_ATTRIBUTE_NODISCARD
             constexpr bool
-            operator!=(T value, std::nullptr_t) {
+            operator!=(T value, nullptr_t) {
             return !(impl::get_underlying(value) == 0);
         }
 
@@ -422,10 +514,50 @@ namespace lunaticpp {
             requires IsFlags<T>
         BOOST_ATTRIBUTE_NODISCARD
             constexpr bool
-            operator!=(std::nullptr_t, T value) {
+            operator!=(nullptr_t, T value) {
             return !(impl::get_underlying(value) == 0);
         }
 #endif
+
+
+        // test for == 0 / != 0
+        template<typename T>
+            requires IsFlags<T>
+        BOOST_ATTRIBUTE_NODISCARD
+            constexpr bool
+            operator==(T value, impl::null_tag) {
+            return impl::get_underlying(value) == 0;
+        }
+
+#if __cplusplus < 202002
+        // no rewritten candidates
+
+        template<typename T>
+            requires IsFlags<T>
+        BOOST_ATTRIBUTE_NODISCARD
+            constexpr bool
+            operator==(impl::null_tag, T value) {
+            return impl::get_underlying(value) == 0;
+        }
+
+        template<typename T>
+            requires IsFlags<T>
+        BOOST_ATTRIBUTE_NODISCARD
+            constexpr bool
+            operator!=(T value, impl::null_tag) {
+            return !(impl::get_underlying(value) == 0);
+        }
+
+        template<typename T>
+            requires IsFlags<T>
+        BOOST_ATTRIBUTE_NODISCARD
+            constexpr bool
+            operator!=(impl::null_tag, T value) {
+            return !(impl::get_underlying(value) == 0);
+        }
+#endif
+
+
 
 
         // conversion to / from underlying type
@@ -450,46 +582,76 @@ namespace lunaticpp {
             }
         }
 
+
+        // delete operator == (and also !=) for comparison of incompatible types
+        // only deleted for non-class enums
+        template<typename T1, typename T2>
+            requires (IsEnabled<T1> || IsEnabled<T2>) && (!IsCompatibleFlagsOrComplement<T1, T2>)
+        && (!std::is_scoped_enum_v<enum_type_t<T1>> && !std::is_scoped_enum_v<enum_type_t<T2>>)
+        BOOST_ATTRIBUTE_NODISCARD
+            constexpr bool operator == (T1, T2) = delete;
+
+        // delete operator == (and also !=) for comparison of incompatible types
+        template<typename T1, typename T2>
+            requires IsCompatibleFlagsOrComplement<T1, T2>
+        BOOST_ATTRIBUTE_NODISCARD
+            constexpr bool operator == (T1 e1, T2 e2) {
+            return get_underlying(e1) == get_underlying(e2);
+        }
+
+        // disabling logical operators
+        // 
+        template<typename T1, typename T2>
+            requires (IsEnabled<T1> || IsEnabled<T2>) // && (!IsCompatibleFlags<T1, T2>)
+        BOOST_ATTRIBUTE_NODISCARD
+            constexpr bool operator && (T1, T2) = delete;
+
+        template<typename T1, typename T2>
+            requires (IsEnabled<T1> || IsEnabled<T2>) // && (!IsCompatibleFlags<T1, T2>)
+        BOOST_ATTRIBUTE_NODISCARD
+            constexpr bool operator || (T1, T2) = delete;
+
+
+        // disabling relational operators
+        // 
+        template<typename T1, typename T2>
+            requires (IsEnabled<T1> || IsEnabled<T2>) && (!IsCompatibleFlagsOrComplement<T1, T2>)
+        BOOST_ATTRIBUTE_NODISCARD
+            constexpr std::partial_ordering operator <=> (T1, T2) = delete;
+
+        namespace impl {
+            template<typename T1, typename T2>
+            BOOST_ATTRIBUTE_NODISCARD
+                std::partial_ordering normalized_contained_induced_compare(T1 l, T2 r) {
+                return l == r
+                    ? std::partial_ordering::equivalent
+                    : (l & r) == l
+                    ? std::partial_ordering::less
+                    : (l & r) == r
+                    ? std::partial_ordering::greater
+                    : std::partial_ordering::unordered
+                    ;
+            }
+
+            template<typename T1, typename T2>
+            BOOST_ATTRIBUTE_NODISCARD
+                std::partial_ordering contained_induced_compare(T1 l, T2 r) {
+                return normalized_contained_induced_compare(
+                    get_normalized(l),
+                    get_normalized(r)
+                );
+            }
+        }
+
         // end of core part
         //
         ///////////////////////////////////////////////////////////////////////////////////////
         
 
-
-        template<typename T>
-        concept LogicalBoolEnabled =
-            !std::is_base_of_v<option_disable_logical_bool, enable<enum_type_t<T>>>;
-
-        template<typename T>
-        concept UtilityFunctionsEnabled =
-            !std::is_base_of_v<option_disable_utility_functions, enable<enum_type_t<T>>>;
-
-        //
-        // operator && : convinience function to do a bitwise & followed by test != 0
-        // (a && b) is equivalent to (a & b) != 0
-        //
-        // ATTENTION: may change semantics of code for unscoped enums, e.g.
-        //
-        // enum e {a=1, b=2};
-        // if(a && b){...}
-        //    ^^^^^^
-        // with bitwises-operators enabled and flags_ENABLE_LOGICAL_OPERATORS defined
-        // the expression evaluates to false [(a&&b) -> (a & b) != 0 -> 0 != 0 -> false]
-        // while without it evaluates to true [(a&&b) -> (true && true) -> true]
-
-        template<typename T1, typename T2, typename Check = impl::compatibility_check_t<T1, T2>>
-            requires LogicalOperationEnabled<T1, T2, std::conjunction>&& LogicalBoolEnabled<T1>
-        BOOST_ATTRIBUTE_NODISCARD
-            constexpr bool
-            operator&&(T1 lhs, T2 rhs) {
-            return impl::get_underlying(lhs) & impl::get_underlying(rhs);
-        }
-
-
         // test if any bit is set
         template<typename T>
-            requires IsFlags<T>&& UtilityFunctionsEnabled<T>
-        BOOST_ATTRIBUTE_NODISCARD
+            requires IsFlags<T>
+            BOOST_ATTRIBUTE_NODISCARD
             constexpr bool
             any(T e) {
             return impl::get_underlying(e) != 0;
@@ -497,18 +659,48 @@ namespace lunaticpp {
 
         // test if no bit is set
         template<typename T>
-            requires IsFlags<T>&& UtilityFunctionsEnabled<T>
-        BOOST_ATTRIBUTE_NODISCARD
+            requires IsFlags<T>
+            BOOST_ATTRIBUTE_NODISCARD
             constexpr bool
             none(T e) {
             return !e;
         }
 
 
+        // test if test_subset is completly contained in superset
+        template<typename T1, typename T2>
+            requires IsCompatibleFlags<T1, T2>
+            BOOST_ATTRIBUTE_NODISCARD
+            constexpr bool
+            contains(T1 superset, T2 test_subset) {
+            return (superset & test_subset) == test_subset;
+        }
+
+
+        // test if test_subset is completly contained in superset
+        template<typename T1, typename T2>
+            requires IsCompatibleFlags<T1, T2>
+            BOOST_ATTRIBUTE_NODISCARD
+            constexpr bool
+            intersect(T1 lhs, T2 rhs) {
+            return (impl::get_underlying(lhs) & impl::get_underlying(rhs)) != 0;
+        }
+
+
+        // test if test_subset is completly contained in superset
+        template<typename T1, typename T2>
+            requires IsCompatibleFlags<T1, T2>
+            BOOST_ATTRIBUTE_NODISCARD
+            constexpr bool
+            disjoint(T1 lhs, T2 rhs) {
+            return (impl::get_underlying(lhs) & impl::get_underlying(rhs)) == 0;
+        }
+
+
         // returns an empty instance of T
         template<typename T>
-            requires IsFlags<T>&& UtilityFunctionsEnabled<T>
-        BOOST_ATTRIBUTE_NODISCARD
+            requires IsFlags<T>
+            BOOST_ATTRIBUTE_NODISCARD
             constexpr enum_type_t<T>
             make_null(T) {
             return static_cast<enum_type_t<T>>(0);
@@ -518,8 +710,8 @@ namespace lunaticpp {
         // depending on set
         // returns e or an empty instance of T
         template<typename T>
-            requires IsFlags<T>&& UtilityFunctionsEnabled<T>
-        BOOST_ATTRIBUTE_NODISCARD
+            requires IsFlags<T>
+            BOOST_ATTRIBUTE_NODISCARD
             constexpr enum_type_t<T>
             make_if(T e, bool set) {
             return static_cast<enum_type_t<T>>(set ? impl::get_underlying(e) : 0);
@@ -528,8 +720,8 @@ namespace lunaticpp {
         // return a copy of value with all
         // bits of modification set resp. cleared
         template<typename T1, typename T2>
-            requires IsSameFlags<T1, T2>&& UtilityFunctionsEnabled<T1>
-        BOOST_ATTRIBUTE_NODISCARD
+            requires IsCompatibleFlags<T1, T2>
+            BOOST_ATTRIBUTE_NODISCARD
             constexpr enum_type_t<T1>
             modify(T1 value, T2 modification, bool set) {
             return set ? (value | modification) : (value & ~modification);
@@ -538,11 +730,29 @@ namespace lunaticpp {
         // sets resp. clears the bits of modification
         // in value in-place
         template<typename T1, typename T2>
-            requires IsSameFlags<T1, T2> && UtilityFunctionsEnabled<T1>
-        constexpr T1&
+            requires IsCompatibleFlags<T1, T2> 
+            constexpr T1&
             modify_inplace(T1& value, T2 modification, bool set) {
             value = set ? (value | modification) : (value & ~modification);
             return value;
+        }
+
+
+
+        template<typename T>
+            requires IsEnabled<T>
+        BOOST_ATTRIBUTE_NODISCARD
+            constexpr impl::pseudo_and_op_intermediate_t<T>
+            operator&(T lhs, impl::pseudo_and_op_tag) {
+            return { lhs };
+        }
+
+        template<typename T1, typename T2, typename Check = impl::compatibility_check_t<T1, T2>>
+            requires LogicalOperationEnabled<T1, T2, std::conjunction>
+            BOOST_ATTRIBUTE_NODISCARD
+            constexpr bool
+            operator&(impl::pseudo_and_op_intermediate_t<T1> lhs, T2 rhs) {
+            return (impl::get_underlying(lhs.value) & impl::get_underlying(rhs)) != 0;
         }
 
 
@@ -553,20 +763,45 @@ namespace lunaticpp {
 }
 
 
-using lunaticpp::flags::operator |;
-using lunaticpp::flags::operator &;
-using lunaticpp::flags::operator ^;
-using lunaticpp::flags::operator ~;
-using lunaticpp::flags::operator |=;
-using lunaticpp::flags::operator &=;
-using lunaticpp::flags::operator ^=;
-using lunaticpp::flags::operator !;
-using lunaticpp::flags::operator ==;
+using boost::flags::operator |;
+using boost::flags::operator &;
+using boost::flags::operator ^;
+using boost::flags::operator ~;
+using boost::flags::operator |=;
+using boost::flags::operator &=;
+using boost::flags::operator ^=;
+using boost::flags::operator !;
+using boost::flags::operator ==;
 #if __cplusplus < 202002
-using lunaticpp::flags::operator !=;
+using boost::flags::operator !=;
 #endif
 
-using lunaticpp::flags::operator &&;
+using boost::flags::operator <=>;
+
+using boost::flags::operator &&;
+using boost::flags::operator ||;
 
 
-#endif  // FLAGS_HPP_INCLUDED
+
+#define BOOST_FLAGS_REL_OPS_PARTIAL_ORDER(E)                                   \
+std::partial_ordering operator <=> (E l, E r) {                                \
+    return boost::flags::impl::normalized_contained_induced_compare(l, r); \
+}                                                                              \
+                                                                               \
+template<typename T1, typename T2>                                             \
+    requires boost::flags::IsCompatibleFlagsOrComplement<T1, T2>           \
+std::partial_ordering operator <=> (T1 l, T2 r) {                              \
+    return boost::flags::impl::contained_induced_compare(l, r);            \
+}                                                                              \
+
+
+
+#define BOOST_FLAGS_PSEUDO_AND_OPERATOR & boost::flags::impl::pseudo_and_op_tag{} &
+
+#define BF_AND  BOOST_FLAGS_PSEUDO_AND_OPERATOR
+
+#define BOOST_FLAGS_NULL boost::flags::impl::null_tag{}
+#define BF_NULL  BOOST_FLAGS_NULL
+
+
+#endif  // BOOST_FLAGS_HPP_INCLUDED

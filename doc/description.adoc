@@ -31,7 +31,7 @@ enum class pizza_toppings {
     tomato      = boost::flags::nth_bit(0), // == 0x01
     cheese      = boost::flags::nth_bit(1), // == 0x02
     salami      = boost::flags::nth_bit(2), // == 0x04
-    olives      = boost::flags::nth_bit(4), // == 0x10
+    olives      = boost::flags::nth_bit(3), // == 0x08
 };
 // enable Boost.Flags for pizza_toppings
 template<> struct boost::flags::enable<pizza_toppings> : std::true_type {};
@@ -73,8 +73,18 @@ int main() {
 // ** when applying bitwise operators to incompatible enumerations
 // ** when accidentally converting bitmasks (negation of flags) to `bool`
 * is non-intrusive - only requires a template specialization
-// * provides a bunch of bit manipulation convenience functions
+// * provides a bunch of bit manipulation utility functions
 // * enforces additional type-checks for existing flag-like unscoped enumerations, while still allowing implicit conversion to `int` and `bool`
+
+## _scoped_ or _unscoped_ enumerations? - TL;DR
+
+We recommend the usage of _scoped_ enumeration, also for existing code-bases, since they provide more type safety by default. (Prohibit implicit conversion to `int`.)
+
+* for both kinds of enumerations Boost.Flags will detect semantical errors when using bitwise operations
+* for _unscoped_ enumerations Boost.Flags will delete (int-)equality tests against constant `0` 
+
+Instead of testing against `0` the macro `BF_NULL` or `nullptr` can be used. (For both kinds of enumerations.)
+
 
 ## The long story
 
@@ -125,7 +135,7 @@ enum class E{ a=1, b=2, c=4, d=8 };
 template<> struct boost::flags::enable<E> : std::true_type {};
 ----
 
-* enables all the operators `~`, `&`, `|`, `^`, `&=`, `|=`, `^=` for `E` and `complement<E>` (xref:_complementing_the_complement[see below])
+* enables all the operators `~`, `&`, `|`, `^`, `&=`, `|=`, `^=` for `E` and `complement<E>` (xref:complementing_the_complement[see below])
 * the binary operators require both arguments to be from the same flag-set
 * all other operators are disabled by default (cf. xref:overloading_relational_operators[overloading relational operators])
 
@@ -133,7 +143,7 @@ template<> struct boost::flags::enable<E> : std::true_type {};
 
 // and return _appropriate_ types (_appropriate_ will be explained soon). 
 // So, all the bitwise operators work for `E` as they did e.g. for the macros from `Windows.h`.
-But even more:
+Even more
 
 * the bitwise negation `~` changes the type from `E` to `complement<E>` and vice-versa
 ** `operator ~(E) \-> complement<E>`
@@ -148,11 +158,11 @@ The bitwise negation `~` changes the type from `E` to `complement<E>` and vice-v
 * `operator ~(E) \-> complement<E>`
 * `operator ~(complement<E>) \-> E`
 
-Before going into details, let me tell you a little tale.
+Before going into details, let me tell you a little tale
 
 ====
 +++<span style="font-family:'Times New Roman'">
-Once, there was a kingdom, where the Queen of Hearts reigned with iron fist. She had her own newspaper for proclamations, where they used a set of flags for font-styles</span>+++
+Once, there was a kingdom, where the Queen of Hearts reigned with iron fist.<br/>She had her own newspaper for proclamations, where they used a set of flags for font-styles</span>+++
 [source, C++]
 ----
 enum font_styles {
@@ -182,8 +192,8 @@ The last thing the programmer heard, as he ran away from the kingdom, was the qu
 ====
 There are two morals of this tale:
 
+* a *syntactical*: the negation flips all bits of the underlying integer. Even though `~bold` did the job in the beginning, it is different from `queen_of_hearts_name`. 
 * a *semantical*: `~bold` isn't a set of font-modifications. It can be used to exclude boldness from a given set.
-* a *syntactical*: the negation flips all bits of the underlying integer. Even though `~bold` did the job in the beginning, it was different from `queen_of_hearts_proclamation`. 
 
 // '
 
@@ -235,16 +245,17 @@ Instead of calling `any` and `none` we can use `!(e) \-> bool`
 #### Everything in order?
 [#overloading_relational_operators]
 Let's take a look at the relational operators `<`, `\<=`, `>` and `>=`. +
-The language allows overloading when at least one of its arguments is of `class` or `enum` type
+C++ allows overloading operators when at least one of its arguments is of `class` or `enum` type
 [source, C++]
 ----
 enum E{};
 bool operator < (E,E){ return true; }
 bool test(){
-    return E{} < E{};       // our operator < and returns true
+    return E{} < E{};       // calls our operator < and returns true
 }
 ----
-This also works for function templates with the one exception: when an operator template is invoked with the same enumeration type for both arguments, then the built-in operator is called.
+This also works for operator templates with one exception: +
+When an operator template for a relational operator is invoked with the same enumeration type for both arguments, then the built-in operator is called.
 [source, C++]
 ----
 enum E{};
@@ -257,13 +268,13 @@ bool test(){
 ====
 There is a Defect Report pending
 https://www.open-std.org/jtc1/sc22/wg21/docs/cwg_active.html#2730
- which would make the later call the user defined operator template.
+ which would make the latter also call the user defined operator template.
 ====
 
-Currently, deleting (resp. overloading) relational operators requires the definition of a macro
+Currently, deleting or overloading relational operators for Boost.Flags enable enumerations requires the definition of a macro
 
 * `BOOST_FLAGS_REL_OPS_DELETE(E)`: deletes all relational operators for enumeration `E`
-* `BOOST_FLAGS_REL_OPS_PARTIAL_ORDER(E)`: defines all relational operators to reflect the partial order induced by `contained` (see below)
+* `BOOST_FLAGS_REL_OPS_PARTIAL_ORDER(E)`: defines all relational operators to reflect the partial order induced by `contained` (xref:contained_induced_partial_order[see below])
 
 
 [WARNING]
@@ -273,14 +284,28 @@ Using built-in relational operators `<`, `\<=`, `>` and `>=` with flags in gener
 
 [NOTE]
 ====
+[#contained_induced_partial_order]
 For the mathematically inclined programmer: +
 The function `contained` reflects the partial order (in the mathematical sense) latexmath:[\leq] of the generated Boolean algebra.
-You can enable relational operators using the _rel_ops_ option which defines
+You can enable relational operators using the `BOOST_FLAGS_REL_OPS_PARTIAL_ORDER` macro at global namespace. +
+`BOOST_FLAGS_REL_OPS_PARTIAL_ORDER(E)` defines the following semantics for the relational operators
 
-* `e1 \<= e2` : `contained(e1, e2)`
-* `e1 >= e2` : `contained(e2, e1)`
-* `e1 < e2` : `(contained(e1, e2) && e1 != e2)`
-* `e1 > e2` : `(contained(e2, e1) && e1 != e2)`
+* `e1 \<= e2` : equivalent to `contained(e1, e2)`
+* `e1 >= e2` : equivalent to `contained(e2, e1)`
+* `e1 < e2` : equivalent to `(contained(e1, e2) && e1 != e2)`
+* `e1 > e2` : equivalent to `(contained(e2, e1) && e1 != e2)`
+* `e1 \<= > e2` : has type `std::partial_ordering` and is equivalent to
+[source, C++]
+----
+    e1 == e2
+    ? std::partial_ordering::equivalent
+    : contained(e1, e2)
+    ? std::partial_ordering::less
+    : contained(e2, e1)
+    ? std::partial_ordering::greater
+    : std::partial_ordering::unordered
+----
+
 ====
 
 #### flags `and` flags
@@ -320,7 +345,7 @@ There are no overloads for operators `&&` and `||` on purpose! Those overloads w
 ====
 
 
-### Convenience functions
+### Utility functions
 
 Additionally, Boost.Flags provides the following functions for an enabled enumeration `E`:
 
@@ -334,9 +359,9 @@ Additionally, Boost.Flags provides the following functions for an enabled enumer
 
 Boost.Flags makes bitwise operations type-safe.
 
-For existing flag-sets, Boost.Flags provides an (almost) unintrusive way to detect semntical errors. The flag-sets can be turned into Boost.Flags enabled unscoped, or even better scoped, enumeration with almost no adjustments to the existing code required. 
+For existing flag-sets, Boost.Flags provides an (almost) unintrusive way to detect semantical errors. The flag-sets can be turned into Boost.Flags enabled unscoped, or even better scoped, enumeration with almost no adjustments to the existing code required. 
 
-For new defined flag-sets, we strongly suggest to use Boost.Flags enabled scoped enumerations as they provide the most type-safety.
+For new defined flag-sets, we strongly suggest to use Boost.Flags enabled scoped enumerations as they provide the most type-safety and allow (int-)equality tests against `0`. 
 
 
 
