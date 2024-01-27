@@ -783,13 +783,28 @@ using boost::flags::operator ||;
 
 
 
+#define BOOST_FLAGS_REL_OPS_DELETE(E)                                   \
+/* needed to match better than built-in relational operators */            \
+std::partial_ordering operator <=> (E l, E r) = delete;                 \
+                                                                               \
+/* needed to match all other E, complement<E> arguments */            \
+template<typename T1, typename T2>                                             \
+    requires (std::is_same_v<E, boost::flags::enum_type_t<T1>> &&                            \
+              std::is_same_v<E, boost::flags::enum_type_t<T2>> )           \
+std::partial_ordering operator <=> (T1 l, T2 r) = delete;                 \
+
+
 #define BOOST_FLAGS_REL_OPS_PARTIAL_ORDER(E)                                   \
+/* needed to match better than built-in relational operators */            \
 std::partial_ordering operator <=> (E l, E r) {                                \
     return boost::flags::impl::normalized_contained_induced_compare(l, r); \
 }                                                                              \
                                                                                \
+/* needed to match all other E, complement<E> arguments */            \
 template<typename T1, typename T2>                                             \
-    requires boost::flags::IsCompatibleFlagsOrComplement<T1, T2>           \
+    requires (std::is_same_v<E, boost::flags::enum_type_t<T1>> &&                            \
+              std::is_same_v<E, boost::flags::enum_type_t<T2>> &&                            \
+                boost::flags::IsCompatibleFlagsOrComplement<T1, T2>)           \
 std::partial_ordering operator <=> (T1 l, T2 r) {                              \
     return boost::flags::impl::contained_induced_compare(l, r);            \
 }                                                                              \
