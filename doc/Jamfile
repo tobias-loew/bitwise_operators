@@ -7,6 +7,9 @@
 import asciidoctor ;
 # import boostbook ;
 
+
+# C:\proj\boost_1_79_0\libs\flags\doc>asciidoctor -b html5 -o flags.html index.adoc
+
 html flags.html : index.adoc ;
 
 # docbook flags.docbook : index.adoc ;
