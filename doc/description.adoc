@@ -310,7 +310,7 @@ You can enable relational operators using the `BOOST_FLAGS_REL_OPS_PARTIAL_ORDER
 * `e1 >= e2` : equivalent to `contained(e2, e1)`
 * `e1 < e2` : equivalent to `(contained(e1, e2) && e1 != e2)`
 * `e1 > e2` : equivalent to `(contained(e2, e1) && e1 != e2)`
-* `e1 \<= > e2` : has type `std::partial_ordering` and is equivalent to
+* `e1 \<\=> e2` : has type `std::partial_ordering` and is equivalent to
 [source]
 ----
     e1 == e2

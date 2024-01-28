@@ -1,6 +1,6 @@
 //////////////////////////////////////////////////////////////////
 //
-//  Boost.Flags
+//  Biist.Flags
 //  non-intrusive bitwise operators for flag-like enumerations
 //
 //  Copyright Tobias Loew 2023. Use, modification and
@@ -129,6 +129,11 @@ namespace boost {
 
 
         struct option_disable_complement {};
+
+
+#if BOOST_FLAGS_ENABLE_OLD_OPTIONS
+        struct option_disable_utility_functions {};
+#endif
 
         // indicates invalid/incompatible types for operation
         struct error_tag {};
@@ -586,10 +591,8 @@ namespace boost {
         // delete operator == (and also !=) for comparison of incompatible types
         // only deleted for non-class enums
         template<typename T1, typename T2>
-            requires ((IsEnabled<T1> && !std::is_scoped_enum_v<enum_type_t<T1>>)
-                      ||
-                      (IsEnabled<T2> && !std::is_scoped_enum_v<enum_type_t<T2>>))
-                      && (!IsCompatibleFlagsOrComplement<T1, T2>)
+            requires (IsEnabled<T1> || IsEnabled<T2>) && (!IsCompatibleFlagsOrComplement<T1, T2>)
+        && (!std::is_scoped_enum_v<enum_type_t<T1>> && !std::is_scoped_enum_v<enum_type_t<T2>>)
         BOOST_ATTRIBUTE_NODISCARD
             constexpr bool operator == (T1, T2) = delete;
 
@@ -650,9 +653,44 @@ namespace boost {
         ///////////////////////////////////////////////////////////////////////////////////////
         
 
+
+#if BOOST_FLAGS_ENABLE_OLD_OPTIONS
+        template<typename T>
+        concept LogicalBoolEnabled =
+            !std::is_base_of_v<option_disable_logical_bool, enable<enum_type_t<T>>>;
+
+        template<typename T>
+        concept UtilityFunctionsEnabled =
+            !std::is_base_of_v<option_disable_utility_functions, enable<enum_type_t<T>>>;
+
+        //
+        // operator && : convinience function to do a bitwise & followed by test != 0
+        // (a && b) is equivalent to (a & b) != 0
+        //
+        // ATTENTION: may change semantics of code for unscoped enums, e.g.
+        //
+        // enum e {a=1, b=2};
+        // if(a && b){...}
+        //    ^^^^^^
+        // with bitwises-operators enabled and flags_ENABLE_LOGICAL_OPERATORS defined
+        // the expression evaluates to false [(a&&b) -> (a & b) != 0 -> 0 != 0 -> false]
+        // while without it evaluates to true [(a&&b) -> (true && true) -> true]
+
+        template<typename T1, typename T2, typename Check = impl::compatibility_check_t<T1, T2>>
+            requires LogicalOperationEnabled<T1, T2, std::conjunction>&& LogicalBoolEnabled<T1>
+        BOOST_ATTRIBUTE_NODISCARD
+            constexpr bool
+            operator&&(T1 lhs, T2 rhs) {
+            return (impl::get_underlying(lhs) & impl::get_underlying(rhs)) != 0;
+        }
+#endif
+
         // test if any bit is set
         template<typename T>
             requires IsFlags<T>
+#if BOOST_FLAGS_ENABLE_OLD_OPTIONS
+        && UtilityFunctionsEnabled<T>
+#endif
             BOOST_ATTRIBUTE_NODISCARD
             constexpr bool
             any(T e) {
@@ -662,6 +700,9 @@ namespace boost {
         // test if no bit is set
         template<typename T>
             requires IsFlags<T>
+#if BOOST_FLAGS_ENABLE_OLD_OPTIONS
+        && UtilityFunctionsEnabled<T>
+#endif
             BOOST_ATTRIBUTE_NODISCARD
             constexpr bool
             none(T e) {
@@ -672,36 +713,51 @@ namespace boost {
         // test if test_subset is completly contained in superset
         template<typename T1, typename T2>
             requires IsCompatibleFlags<T1, T2>
+#if BOOST_FLAGS_ENABLE_OLD_OPTIONS
+        && UtilityFunctionsEnabled<T>
+#endif
             BOOST_ATTRIBUTE_NODISCARD
             constexpr bool
             contains(T1 superset, T2 test_subset) {
             return (superset & test_subset) == test_subset;
+            //return !(test_subset & ~superset);
         }
 
 
         // test if test_subset is completly contained in superset
         template<typename T1, typename T2>
             requires IsCompatibleFlags<T1, T2>
+#if BOOST_FLAGS_ENABLE_OLD_OPTIONS
+        && UtilityFunctionsEnabled<T>
+#endif
             BOOST_ATTRIBUTE_NODISCARD
             constexpr bool
             intersect(T1 lhs, T2 rhs) {
             return (impl::get_underlying(lhs) & impl::get_underlying(rhs)) != 0;
+//            return (lhs & rhs) != 0;
         }
 
 
         // test if test_subset is completly contained in superset
         template<typename T1, typename T2>
             requires IsCompatibleFlags<T1, T2>
+#if BOOST_FLAGS_ENABLE_OLD_OPTIONS
+        && UtilityFunctionsEnabled<T>
+#endif
             BOOST_ATTRIBUTE_NODISCARD
             constexpr bool
             disjoint(T1 lhs, T2 rhs) {
             return (impl::get_underlying(lhs) & impl::get_underlying(rhs)) == 0;
+//            return (lhs & rhs) == 0;
         }
 
 
         // returns an empty instance of T
         template<typename T>
             requires IsFlags<T>
+#if BOOST_FLAGS_ENABLE_OLD_OPTIONS
+        && UtilityFunctionsEnabled<T>
+#endif
             BOOST_ATTRIBUTE_NODISCARD
             constexpr enum_type_t<T>
             make_null(T) {
@@ -713,6 +769,9 @@ namespace boost {
         // returns e or an empty instance of T
         template<typename T>
             requires IsFlags<T>
+#if BOOST_FLAGS_ENABLE_OLD_OPTIONS
+        && UtilityFunctionsEnabled<T>
+#endif
             BOOST_ATTRIBUTE_NODISCARD
             constexpr enum_type_t<T>
             make_if(T e, bool set) {
@@ -723,6 +782,9 @@ namespace boost {
         // bits of modification set resp. cleared
         template<typename T1, typename T2>
             requires IsCompatibleFlags<T1, T2>
+#if BOOST_FLAGS_ENABLE_OLD_OPTIONS
+        && UtilityFunctionsEnabled<T>
+#endif
             BOOST_ATTRIBUTE_NODISCARD
             constexpr enum_type_t<T1>
             modify(T1 value, T2 modification, bool set) {
@@ -733,6 +795,9 @@ namespace boost {
         // in value in-place
         template<typename T1, typename T2>
             requires IsCompatibleFlags<T1, T2> 
+#if BOOST_FLAGS_ENABLE_OLD_OPTIONS
+        && UtilityFunctionsEnabled<T>
+#endif
             constexpr T1&
             modify_inplace(T1& value, T2 modification, bool set) {
             value = set ? (value | modification) : (value & ~modification);
@@ -741,8 +806,15 @@ namespace boost {
 
 
 
+
+
+
+
         template<typename T>
             requires IsEnabled<T>
+#if BOOST_FLAGS_ENABLE_OLD_OPTIONS
+        && UtilityFunctionsEnabled<T>
+#endif
         BOOST_ATTRIBUTE_NODISCARD
             constexpr impl::pseudo_and_op_intermediate_t<T>
             operator&(T lhs, impl::pseudo_and_op_tag) {
@@ -751,11 +823,23 @@ namespace boost {
 
         template<typename T1, typename T2, typename Check = impl::compatibility_check_t<T1, T2>>
             requires LogicalOperationEnabled<T1, T2, std::conjunction>
+#if BOOST_FLAGS_ENABLE_OLD_OPTIONS
+        && UtilityFunctionsEnabled<T>
+#endif
             BOOST_ATTRIBUTE_NODISCARD
             constexpr bool
             operator&(impl::pseudo_and_op_intermediate_t<T1> lhs, T2 rhs) {
             return (impl::get_underlying(lhs.value) & impl::get_underlying(rhs)) != 0;
         }
+
+
+
+
+
+
+
+
+
 
 
         // returns a value with the n-th (zero-indexed) bit set
@@ -785,28 +869,13 @@ using boost::flags::operator ||;
 
 
 
-#define BOOST_FLAGS_REL_OPS_DELETE(E)                                   \
-/* needed to match better than built-in relational operators */            \
-std::partial_ordering operator <=> (E l, E r) = delete;                 \
-                                                                               \
-/* needed to match all other E, complement<E> arguments */            \
-template<typename T1, typename T2>                                             \
-    requires (std::is_same_v<E, boost::flags::enum_type_t<T1>> &&                            \
-              std::is_same_v<E, boost::flags::enum_type_t<T2>> )           \
-std::partial_ordering operator <=> (T1 l, T2 r) = delete;                 \
-
-
 #define BOOST_FLAGS_REL_OPS_PARTIAL_ORDER(E)                                   \
-/* needed to match better than built-in relational operators */            \
 std::partial_ordering operator <=> (E l, E r) {                                \
     return boost::flags::impl::normalized_contained_induced_compare(l, r); \
 }                                                                              \
                                                                                \
-/* needed to match all other E, complement<E> arguments */            \
 template<typename T1, typename T2>                                             \
-    requires (std::is_same_v<E, boost::flags::enum_type_t<T1>> &&                            \
-              std::is_same_v<E, boost::flags::enum_type_t<T2>> &&                            \
-                boost::flags::IsCompatibleFlagsOrComplement<T1, T2>)           \
+    requires boost::flags::IsCompatibleFlagsOrComplement<T1, T2>           \
 std::partial_ordering operator <=> (T1 l, T2 r) {                              \
     return boost::flags::impl::contained_induced_compare(l, r);            \
 }                                                                              \

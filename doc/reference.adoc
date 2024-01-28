@@ -127,8 +127,7 @@ otherwise
 
 * `operator & (E, E) \-> E`
 
-
-
+All other `operator &` where one of the arguments is `E` or `complement<E>` are deleted.
 
 
 ### operator |
@@ -148,6 +147,7 @@ otherwise
 
 * `operator | (E, E) \-> E`
 
+All other `operator |` where one of the arguments is `E` or `complement<E>` are deleted.
 
 
 
@@ -169,6 +169,7 @@ otherwise
 
 * `operator ^ (E, E) \-> E`
 
+All other `operator ^` where one of the arguments is `E` or `complement<E>` are deleted.
 
 
 ### operator &=
@@ -181,7 +182,7 @@ When `complement` is enabled for flags `E`
 
 * `operator &= (E&, E) \-> E&`
 * `operator &= (E&, complement<E>) \-> E&`
-* `operator & (complement<E>, complement<E>) \-> complement<E>`
+* `operator &= (complement<E>&, complement<E>) \-> complement<E>&`
 
 [NOTE]
 ====
@@ -191,6 +192,8 @@ The assignment `operator &= (complement<E>&, E)` is *not* available, as it would
 otherwise
 
 * `operator &= (E&, E) \-> E&`
+
+All other `operator &=` where one of the arguments is `E`, `E&`, `complement<E>&` or `complement<E>` are deleted.
 
 
 
@@ -207,7 +210,7 @@ When `complement` is enabled for flags `E`
 
 * `operator |= (E&,E) \-> E&`
 * `operator |= (complement<E>&,E) \-> complement<E>&`
-* `operator | (complement<E>,complement<E>) \-> complement<E>`
+* `operator |= (complement<E>&,complement<E>) \-> complement<E>&`
 
 [NOTE]
 ====
@@ -217,6 +220,8 @@ The assignment `operator |= (E&, complement<E>)` is *not* available, as it would
 otherwise
 
 * `operator |= (E&,E) \-> E&`
+
+All other `operator |=` where one of the arguments is `E`, `E&`, `complement<E>&` or `complement<E>` are deleted.
 
 
 
@@ -242,6 +247,8 @@ The assignment `operator ^= (E&, complement<E>)` and `operator ^= (complement<E>
 otherwise
 
 * `operator ^= (E&,E) \-> E&`
+
+All other `operator ^=` where one of the arguments is `E`, `E&`, `complement<E>&` or `complement<E>` are deleted.
 
 
 ### operator !
@@ -273,6 +280,56 @@ Takes the bitwise AND of its arguments and converts the result to `bool`.
 ----
 
 
+## operator == , operator !=
+
+The description is only given for `operator ==`. Calls with reversed arguments and to `operator !=` will constructed by rewrite rules.
+
+* `operator == (E, E)`
+* `operator == (complement<E>, complement<E>)` 
+
+equality is defined as usual by applying th operator to the underlying integer.
+
+Furthermore the following overloads are defined
+
+* `operator == (E, std::nullptr_t)`
+* `operator == (E, impl::null_tag)`
+
+Both test for equality with an underlying value of `0`. The macro xref:BF_NULL[`BF_NULL`] defines an instance of `impl::null_tag`.
+
+All other `operator ==` where one of the arguments is `E` or `complement<E>` are deleted, especially when the other has integer type.
+
+[NOTE]
+====
+If `E` is a scoped enumeration then
+[source]
+----
+    bool foo(E e){
+        return e == 0;  // literal 0 converts to nullptr, thus
+                        // operator == (E, std::nullptr_t) will be called
+    }
+----
+compiles and returns the expected result.
+
+when `E` is unscoped then above code will fail to compile: the overload `operator(E, int)` is deleted for unscoped enumerations. +
+If it wasn't then comparison with arbitrary integer values would be possible, as unscoped enumerations implicitly convert to their underlying integer type.
+
+
+====
+
+
+## Relational operators <, \<=, > and >=
+The relational operators for enumerations (scoped and unscoped) are provided by the language (by applying the resp. operator to the underlying value).
+Furthermore, the current wording doesn't allow overloading or deleting those operators by a templated operator (there is a pending Defect Report on this topic: 
+https://www.open-std.org/jtc1/sc22/wg21/docs/cwg_active.html#2730).
+
+There are macros xref:BOOST_FLAGS_REL_OPS_PARTIAL_ORDER[BOOST_FLAGS_REL_OPS_PARTIAL_ORDER] to overload and xref:BOOST_FLAGS_REL_OPS_DELETE[BOOST_FLAGS_REL_OPS_DELETE] to delete relational operators.
+
+[WARNING]
+====
+It is strongly recommended to define either `BOOST_FLAGS_REL_OPS_PARTIAL_ORDER` or `BOOST_FLAGS_REL_OPS_DELETE` for flag-like enumerations.
+
+The built-in semantics for relational operators do not coincide with flag entailment!
+====
 
 ## Boolean predicates
 
@@ -438,7 +495,7 @@ The following semantics apply
 * `e1 >= e2` : equivalent to `contained(e2, e1)`
 * `e1 < e2` : equivalent to `(contained(e1, e2) && e1 != e2)`
 * `e1 > e2` : equivalent to `(contained(e2, e1) && e1 != e2)`
-* `e1 \<= > e2` : has type `std::partial_ordering` and is equivalent to
+* `e1 \<\=> e2` : has type `std::partial_ordering` and is equivalent to
 [source]
 ----
     e1 == e2
