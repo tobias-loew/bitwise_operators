@@ -600,8 +600,6 @@ pre.rouge .gs {
 <li><a href="#pseudo_operator_bf_and">Pseudo operator BF_AND</a></li>
 </ul>
 </li>
-<li><a href="#operator_operator">operator == , operator !=</a></li>
-<li><a href="#relational_operators_and">Relational operators &lt;, &lt;=, &gt; and &gt;=</a></li>
 <li><a href="#boolean_predicates">Boolean predicates</a>
 <ul class="sectlevel3">
 <li><a href="#any">any</a></li>
@@ -1190,7 +1188,7 @@ You can enable relational operators using the <code>BOOST_FLAGS_REL_OPS_PARTIAL_
 <p><code>e1 &gt; e2</code> : equivalent to <code>(contained(e2, e1) &amp;&amp; e1 != e2)</code></p>
 </li>
 <li>
-<p><code>e1 &lt;=&gt; e2</code> : has type <code>std::partial_ordering</code> and is equivalent to</p>
+<p><code>e1 &lt;= &gt; e2</code> : has type <code>std::partial_ordering</code> and is equivalent to</p>
 </li>
 </ul>
 </div>
@@ -1490,9 +1488,6 @@ It is used to distinguish flag-values from <em>negative masks</em>.</p>
 </li>
 </ul>
 </div>
-<div class="paragraph">
-<p>All other <code>operator &amp;</code> where one of the arguments is <code>E</code> or <code>complement&lt;E&gt;</code> are deleted.</p>
-</div>
 </div>
 <div class="sect3">
 <h4 id="operator_2">operator |</h4>
@@ -1530,9 +1525,6 @@ It is used to distinguish flag-values from <em>negative masks</em>.</p>
 <p><code>operator | (E, E) -&gt; E</code></p>
 </li>
 </ul>
-</div>
-<div class="paragraph">
-<p>All other <code>operator |</code> where one of the arguments is <code>E</code> or <code>complement&lt;E&gt;</code> are deleted.</p>
 </div>
 </div>
 <div class="sect3">
@@ -1572,9 +1564,6 @@ It is used to distinguish flag-values from <em>negative masks</em>.</p>
 </li>
 </ul>
 </div>
-<div class="paragraph">
-<p>All other <code>operator ^</code> where one of the arguments is <code>E</code> or <code>complement&lt;E&gt;</code> are deleted.</p>
-</div>
 </div>
 <div class="sect3">
 <h4 id="operator_4">operator &amp;=</h4>
@@ -1596,7 +1585,7 @@ It is used to distinguish flag-values from <em>negative masks</em>.</p>
 <p><code>operator &amp;= (E&amp;, complement&lt;E&gt;) -&gt; E&amp;</code></p>
 </li>
 <li>
-<p><code>operator &amp;= (complement&lt;E&gt;&amp;, complement&lt;E&gt;) -&gt; complement&lt;E&gt;&amp;</code></p>
+<p><code>operator &amp; (complement&lt;E&gt;, complement&lt;E&gt;) -&gt; complement&lt;E&gt;</code></p>
 </li>
 </ul>
 </div>
@@ -1624,9 +1613,6 @@ It is used to distinguish flag-values from <em>negative masks</em>.</p>
 </li>
 </ul>
 </div>
-<div class="paragraph">
-<p>All other <code>operator &amp;=</code> where one of the arguments is <code>E</code>, <code>E&amp;</code>, <code>complement&lt;E&gt;&amp;</code> or <code>complement&lt;E&gt;</code> are deleted.</p>
-</div>
 </div>
 <div class="sect3">
 <h4 id="operator_5">operator |=</h4>
@@ -1648,7 +1634,7 @@ It is used to distinguish flag-values from <em>negative masks</em>.</p>
 <p><code>operator |= (complement&lt;E&gt;&amp;,E) -&gt; complement&lt;E&gt;&amp;</code></p>
 </li>
 <li>
-<p><code>operator |= (complement&lt;E&gt;&amp;,complement&lt;E&gt;) -&gt; complement&lt;E&gt;&amp;</code></p>
+<p><code>operator | (complement&lt;E&gt;,complement&lt;E&gt;) -&gt; complement&lt;E&gt;</code></p>
 </li>
 </ul>
 </div>
@@ -1675,9 +1661,6 @@ It is used to distinguish flag-values from <em>negative masks</em>.</p>
 <p><code>operator |= (E&amp;,E) -&gt; E&amp;</code></p>
 </li>
 </ul>
-</div>
-<div class="paragraph">
-<p>All other <code>operator |=</code> where one of the arguments is <code>E</code>, <code>E&amp;</code>, <code>complement&lt;E&gt;&amp;</code> or <code>complement&lt;E&gt;</code> are deleted.</p>
 </div>
 </div>
 <div class="sect3">
@@ -1725,9 +1708,6 @@ It is used to distinguish flag-values from <em>negative masks</em>.</p>
 </li>
 </ul>
 </div>
-<div class="paragraph">
-<p>All other <code>operator ^=</code> where one of the arguments is <code>E</code>, <code>E&amp;</code>, <code>complement&lt;E&gt;&amp;</code> or <code>complement&lt;E&gt;</code> are deleted.</p>
-</div>
 </div>
 <div class="sect3">
 <h4 id="operator_7">operator !</h4>
@@ -1760,101 +1740,6 @@ It is used to distinguish flag-values from <em>negative masks</em>.</p>
 <pre class="rouge highlight"><code data-lang="cpp"><span class="cp">#define BF_AND  &amp; boost::flags::impl::pseudo_and_op_tag{} &amp;</span></code></pre>
 </div>
 </div>
-</div>
-</div>
-<div class="sect2">
-<h3 id="operator_operator">operator == , operator !=</h3>
-<div class="paragraph">
-<p>The description is only given for <code>operator ==</code>. Calls with reversed arguments and to <code>operator !=</code> will constructed by rewrite rules.</p>
-</div>
-<div class="ulist">
-<ul>
-<li>
-<p><code>operator == (E, E)</code></p>
-</li>
-<li>
-<p><code>operator == (complement&lt;E&gt;, complement&lt;E&gt;)</code></p>
-</li>
-</ul>
-</div>
-<div class="paragraph">
-<p>equality is defined as usual by applying th operator to the underlying integer.</p>
-</div>
-<div class="paragraph">
-<p>Furthermore the following overloads are defined</p>
-</div>
-<div class="ulist">
-<ul>
-<li>
-<p><code>operator == (E, std::nullptr_t)</code></p>
-</li>
-<li>
-<p><code>operator == (E, impl::null_tag)</code></p>
-</li>
-</ul>
-</div>
-<div class="paragraph">
-<p>Both test for equality with an underlying value of <code>0</code>. The macro <a href="#bf_null"><code>BF_NULL</code></a> defines an instance of <code>impl::null_tag</code>.</p>
-</div>
-<div class="paragraph">
-<p>All other <code>operator ==</code> where one of the arguments is <code>E</code> or <code>complement&lt;E&gt;</code> are deleted, especially when the other has integer type.</p>
-</div>
-<div class="admonitionblock note">
-<table>
-<tr>
-<td class="icon">
-<div class="title">Note</div>
-</td>
-<td class="content">
-<div class="paragraph">
-<p>If <code>E</code> is a scoped enumeration then</p>
-</div>
-<div class="listingblock">
-<div class="content">
-<pre class="rouge highlight"><code data-lang="cpp">    <span class="kt">bool</span> <span class="nf">foo</span><span class="p">(</span><span class="n">E</span> <span class="n">e</span><span class="p">){</span>
-        <span class="k">return</span> <span class="n">e</span> <span class="o">==</span> <span class="mi">0</span><span class="p">;</span>  <span class="c1">// literal 0 converts to nullptr, thus</span>
-                        <span class="c1">// operator == (E, std::nullptr_t) will be called</span>
-    <span class="p">}</span></code></pre>
-</div>
-</div>
-<div class="paragraph">
-<p>compiles and returns the expected result.</p>
-</div>
-<div class="paragraph">
-<p>when <code>E</code> is unscoped then above code will fail to compile: the overload <code>operator(E, int)</code> is deleted for unscoped enumerations.<br>
-If it wasn&#8217;t then comparison with arbitrary integer values would be possible, as unscoped enumerations implicitly convert to their underlying integer type.</p>
-</div>
-</td>
-</tr>
-</table>
-</div>
-</div>
-<div class="sect2">
-<h3 id="relational_operators_and">Relational operators &lt;, &lt;=, &gt; and &gt;=</h3>
-<div class="paragraph">
-<p>The relational operators for enumerations (scoped and unscoped) are provided by the language (by applying the resp. operator to the underlying value).
-Furthermore, the current wording doesn&#8217;t allow overloading or deleting those operators by a templated operator (there is a pending Defect Report on this topic:
-<a href="https://www.open-std.org/jtc1/sc22/wg21/docs/cwg_active.html#2730" class="bare">https://www.open-std.org/jtc1/sc22/wg21/docs/cwg_active.html#2730</a>).</p>
-</div>
-<div class="paragraph">
-<p>There are macros <a href="#boost_flags_rel_ops_partial_order">BOOST_FLAGS_REL_OPS_PARTIAL_ORDER</a> to overload and <a href="#boost_flags_rel_ops_delete">BOOST_FLAGS_REL_OPS_DELETE</a> to delete relational operators.</p>
-</div>
-<div class="admonitionblock warning">
-<table>
-<tr>
-<td class="icon">
-<div class="title">Warning</div>
-</td>
-<td class="content">
-<div class="paragraph">
-<p>It is strongly recommended to define either <code>BOOST_FLAGS_REL_OPS_PARTIAL_ORDER</code> or <code>BOOST_FLAGS_REL_OPS_DELETE</code> for flag-like enumerations.</p>
-</div>
-<div class="paragraph">
-<p>The built-in semantics for relational operators do not coincide with flag entailment!</p>
-</div>
-</td>
-</tr>
-</table>
 </div>
 </div>
 <div class="sect2">
@@ -2024,7 +1909,7 @@ The following semantics apply</p>
 <p><code>e1 &gt; e2</code> : equivalent to <code>(contained(e2, e1) &amp;&amp; e1 != e2)</code></p>
 </li>
 <li>
-<p><code>e1 &lt;=&gt; e2</code> : has type <code>std::partial_ordering</code> and is equivalent to</p>
+<p><code>e1 &lt;= &gt; e2</code> : has type <code>std::partial_ordering</code> and is equivalent to</p>
 </li>
 </ul>
 </div>
