@@ -119,6 +119,21 @@
 
 namespace boost {
     namespace flags {
+        namespace impl {
+
+#ifdef __cpp_lib_is_scoped_enum
+            template<typename E>
+            using is_scoped_enum = std::is_scoped_enum<E>;
+#else
+            template<typename E>
+            struct is_scoped_enum : std::bool_constant < requires
+            {
+                requires std::is_enum_v<E>;
+                requires !std::is_convertible_v<E, std::underlying_type_t<E>>;
+            } >
+            {};
+#endif
+        }
 
         // non-intrusive opt-in to operations of boost::flags
         // specialize
@@ -586,9 +601,9 @@ namespace boost {
         // delete operator == (and also !=) for comparison of incompatible types
         // only deleted for non-class enums
         template<typename T1, typename T2>
-            requires ((IsEnabled<T1> && !std::is_scoped_enum_v<enum_type_t<T1>>)
+            requires ((IsEnabled<T1> && !impl::is_scoped_enum<enum_type_t<T1>>::value)
                       ||
-                      (IsEnabled<T2> && !std::is_scoped_enum_v<enum_type_t<T2>>))
+                      (IsEnabled<T2> && !impl::is_scoped_enum<enum_type_t<T2>>::value))
                       && (!IsCompatibleFlagsOrComplement<T1, T2>)
         BOOST_ATTRIBUTE_NODISCARD
             constexpr bool operator == (T1, T2) = delete;
