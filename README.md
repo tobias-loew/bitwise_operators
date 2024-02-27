@@ -1,4 +1,9 @@
+# This repository is no longer maintained. Please use the successor library [flags](https://github.com/tobias-loew/flags) 
+
+
 # bitwise_operators
+
+
 type-safe bitwise-operations on enums in C++
 
     enum class flags_t {
